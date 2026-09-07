@@ -2,7 +2,7 @@
 
 基于 [EndlessCodeGroup/RPGInventory](https://github.com/EndlessCodeGroup/RPGInventory) 的现代化分支，为 SX-Attribute、SX-Item 提供 RPG 装备槽和便携背包，兼容目标覆盖 Paper 1.12.2、1.16.5、1.20.6、1.21.11、26.2、Spigot 26.1.2 和 Leaf 26.2。
 
-当前版本支持 MySQL 和默认中文配置，Redis 仅作为 SQL 的可选缓存。两套 API 构建各通过 100 项测试，无失败或跳过。当前产物及实测见 [Redis 缓存更新](docs/REDIS-CACHE.md)；此前 [MySQL 与中文更新](docs/MYSQL-CHINESE.md)、[服务器矩阵](docs/SERVER-MATRIX.md) 保留为历史证据，不同产物的结果分开记录。
+当前正式版为 [3.0.1](https://github.com/FxRayHughes/SX-RPGInventory/releases/tag/v3.0.1)，支持 MySQL 和默认中文配置，Redis 仅作为 SQL 的可选缓存。发布核验见 [3.0.1 发布记录](docs/RELEASE-3.0.1.md)。其运行代码沿用已完成两套 API 各 100 项测试及七服实测的 [Redis 缓存版本](docs/REDIS-CACHE.md)；此前 [MySQL 与中文更新](docs/MYSQL-CHINESE.md)、[服务器矩阵](docs/SERVER-MATRIX.md) 保留为历史证据，不同产物的结果分开记录。
 
 ## 环境与依赖
 
@@ -35,7 +35,7 @@ $env:JAVA_HOME = 'D:/Java/jdk-25.0.1'
 ./gradlew.bat clean build --no-daemon '-PpaperApiVersion=26.2.build.121-stable'
 ```
 
-Linux/macOS 使用 `./gradlew`。默认 Paper API 为 `26.1.2.build.74-stable`。插件产物为 `build/libs/SX-RPGInventory-3.0.0-SNAPSHOT.jar`；`-plain.jar` 不包含运行库，不用于服务器安装。
+Linux/macOS 使用 `./gradlew`。默认 Paper API 为 `26.1.2.build.74-stable`。插件产物为 `build/libs/SX-RPGInventory-3.0.1.jar`；`-plain.jar` 不包含运行库，不用于服务器安装。
 
 真实 PostgreSQL / MySQL / Redis 测试需要配置 [仓储测试环境变量](docs/STORAGE.md)；缺少变量时对应测试会跳过。实机诊断插件单独使用 `./gradlew.bat probeJar --no-daemon` 生成 `build/libs/SX-RPGInventory-Probe-1.0.0.jar`，不随主插件打包。
 
@@ -51,7 +51,7 @@ $env:JAVA_TOOL_OPTIONS = "-Djdk.net.unixdomain.tmpdir=$socketPath"
 
 ## Maven publication
 
-`api` publication 的坐标为 `github.saukiya.sxrpginventory:sx-rpginventory:3.0.0-SNAPSHOT`，发布普通薄 JAR 和源码。薄包本地产物为 `build/libs/SX-RPGInventory-api-3.0.0-SNAPSHOT.jar`；POM 保留真实运行时依赖，Bukkit 和可选服务器 API 标记为 provided。消费插件可使用 `compileOnly('github.saukiya.sxrpginventory:sx-rpginventory:3.0.0-SNAPSHOT') { transitive = false }` 并声明自己的目标 Bukkit API。
+`api` publication 的坐标为 `github.saukiya.sxrpginventory:sx-rpginventory:3.0.1`，发布普通薄 JAR 和源码。薄包本地产物为 `build/libs/SX-RPGInventory-api-3.0.1.jar`；POM 保留真实运行时依赖，Bukkit 和可选服务器 API 标记为 provided。消费插件可使用 `compileOnly('github.saukiya.sxrpginventory:sx-rpginventory:3.0.1') { transitive = false }` 并声明自己的目标 Bukkit API。
 
 仅生成本地发布描述，不上传：
 

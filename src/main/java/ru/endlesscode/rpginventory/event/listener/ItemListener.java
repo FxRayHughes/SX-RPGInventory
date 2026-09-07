@@ -20,7 +20,7 @@ package ru.endlesscode.rpginventory.event.listener;
 
 import org.bukkit.Material;
 import org.bukkit.Particle;
-import org.bukkit.entity.AbstractArrow;
+import org.bukkit.entity.Projectile;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -34,14 +34,15 @@ import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.player.*;
-import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.util.Vector;
 import org.jetbrains.annotations.NotNull;
-import ru.endlesscode.inspector.bukkit.scheduler.TrackedBukkitRunnable;
+// Use Bukkit scheduling directly; the old wrapper implements an obsolete Plugin interface.
+import org.bukkit.scheduler.BukkitRunnable;
 import ru.endlesscode.rpginventory.RPGInventory;
 import ru.endlesscode.rpginventory.compat.SoundCompat;
+import ru.endlesscode.rpginventory.compat.InventoryViewCompatibility;
 import ru.endlesscode.rpginventory.inventory.InventoryManager;
 import ru.endlesscode.rpginventory.inventory.slot.Slot;
 import ru.endlesscode.rpginventory.inventory.slot.SlotManager;
@@ -89,9 +90,9 @@ public class ItemListener implements Listener {
             itemInHand = damager.getEquipment().getItemInMainHand();
             damageModifier = ItemManager.getModifier(damager,
                     ItemUtils.isEmpty(itemInHand) ? ItemStat.StatType.HAND_DAMAGE : ItemStat.StatType.DAMAGE);
-        } else if (event.getDamager() instanceof AbstractArrow &&
-                ((AbstractArrow) event.getDamager()).getShooter() instanceof Player) {
-            damager = (Player) ((AbstractArrow) event.getDamager()).getShooter();
+        } else if (isArrow(event.getDamager()) &&
+                ((Projectile) event.getDamager()).getShooter() instanceof Player) {
+            damager = (Player) ((Projectile) event.getDamager()).getShooter();
             itemInHand = damager.getEquipment().getItemInMainHand();
             damageModifier = ItemManager.getModifier(damager, ItemStat.StatType.BOW_DAMAGE);
         } else {
@@ -264,12 +265,12 @@ public class ItemListener implements Listener {
             return;
         }
 
-        new TrackedBukkitRunnable() {
+        new BukkitRunnable() {
             @Override
             public void run() {
-                InventoryView inventoryView = event.getView();
+                Object inventoryView = event.getView();
                 for (int slot : event.getRawSlots()) {
-                    ItemStack item = inventoryView.getItem(slot);
+                    ItemStack item = InventoryViewCompatibility.item(inventoryView, slot);
                     if (CustomItem.isCustomItem(item)) {
                         ItemManager.updateStats((Player) event.getWhoClicked());
                     }
@@ -289,7 +290,7 @@ public class ItemListener implements Listener {
         final ItemStack newItem = player.getInventory().getItem(event.getNewSlot());
         final ItemStack oldItem = player.getInventory().getItem(event.getPreviousSlot());
 
-        new TrackedBukkitRunnable() {
+        new BukkitRunnable() {
             @Override
             public void run() {
                 if (CustomItem.isCustomItem(oldItem) || CustomItem.isCustomItem(newItem)) {
@@ -340,5 +341,13 @@ public class ItemListener implements Listener {
         if (CustomItem.isCustomItem(event.getBrokenItem())) {
             ItemManager.updateStats(player);
         }
+    }
+
+    /** AbstractArrow does not exist on 1.12; preserve its arrow/trident family through stable type names. */
+    private static boolean isArrow(org.bukkit.entity.Entity entity) {
+        if (!(entity instanceof Projectile)) return false;
+        String type = entity.getType().name();
+        return "ARROW".equals(type) || "TIPPED_ARROW".equals(type)
+                || "SPECTRAL_ARROW".equals(type) || "TRIDENT".equals(type);
     }
 }

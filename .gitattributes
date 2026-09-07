@@ -1,0 +1,3 @@
+# Wrapper entry points must survive Windows checkouts and still run on Unix CI.
+/gradlew text eol=lf
+/gradlew.bat text eol=crlf

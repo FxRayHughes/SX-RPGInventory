@@ -1,4 +1,4 @@
-# RPG Inventory
+# SX-RPGInventory
 # by OsipXD
 
 ###############################
@@ -8,11 +8,34 @@
 # Plugin enabling
 enabled: true
 
+# One authoritative backend for players and portable backpacks; changing backend requires a restart and migration.
+storage:
+  backend: SQLITE # SQLITE, POSTGRESQL, REDIS
+  # Servers sharing equipment must use the same backend and namespace.
+  namespace: default
+  # Renewable ownership prevents two servers from editing one record concurrently.
+  lease-seconds: 60
+  sqlite:
+    file: storage/inventories.db
+  postgresql:
+    url: jdbc:postgresql://localhost:5432/minecraft
+    username: minecraft
+    password: ''
+    # If set, this environment variable is required and takes precedence over password.
+    password-env: ''
+    pool-size: 4
+  redis:
+    # Redis is persistent storage in this mode: enable AOF and noeviction on the server.
+    uri: redis://localhost:6379/0
+    # Use a secret environment variable containing a redis:// or rediss:// URI in production.
+    uri-env: ''
+
 # Language (must be same as the file name in the folder /lang)
 language: en
 
 # Check update system
-check-update: true
+# The upstream updater serves the old RPGInventory release line, not this fork.
+check-update: false
 
 # Worlds settings
 worlds:
@@ -60,9 +83,8 @@ items:
 ###############################
 
 backpacks:
-  # Backpack will be deleted if it is not opened within that period (in days)
-  # Comment it out or set 0 for infinity backpacks (NOT RECOMMENDED)
-  expiration-time: 30
+  # Legacy option retained for configuration compatibility. Durable storage never deletes backpacks by age.
+  expiration-time: 0
 
   # Permitted number of backpacks in player inventory (0 - for unlimited)
   limit: 1

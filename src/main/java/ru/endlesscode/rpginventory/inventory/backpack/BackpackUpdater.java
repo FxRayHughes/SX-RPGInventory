@@ -46,6 +46,8 @@ public class BackpackUpdater extends BukkitRunnable {
 
     @Override
     public void run() {
+        // A close event already captured final contents; delayed click callbacks must not mutate released records.
+        if (!BackpackStorage.isActive(backpack)) return;
         backpack.onUse();
 
         int backpackSize = backpack.getType().getSize();

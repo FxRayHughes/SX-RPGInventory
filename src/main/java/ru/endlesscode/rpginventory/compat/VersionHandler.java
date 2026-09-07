@@ -41,16 +41,20 @@ public class VersionHandler {
     public static final int VERSION_1_18 = 1_18_00;
     public static final int VERSION_1_19 = 1_19_00;
 
-    private static final Pattern pattern = Pattern.compile("(?<version>\\d\\.\\d{1,2}(\\.\\d)?)-.*");
+    // Since 2026 the major version is two digits; Paper suffixes may use either '-' or '.build.'.
+    private static final Pattern pattern = Pattern.compile("^(?<version>\\d+\\.\\d+(?:\\.\\d+)?)");
+    public static final int VERSION_26_1 = 26_01_00;
+    public static final int VERSION_26_3 = 26_03_00;
 
     private static int versionCode = -1;
 
     public static boolean isNotSupportedVersion() {
-        return getVersionCode() < VERSION_1_14 || getVersionCode() >= VERSION_1_19;
+        // Full test-matrix range includes legacy Bukkit and current 26.x releases.
+        return getVersionCode() < VERSION_1_12 || getVersionCode() >= VERSION_26_3;
     }
 
     public static boolean isExperimentalSupport() {
-        return getVersionCode() == VERSION_1_18;
+        return false;
     }
 
     public static boolean isLegacy() {
@@ -66,12 +70,17 @@ public class VersionHandler {
     }
 
     private static void initVersionCode() {
-        Matcher matcher = pattern.matcher(Bukkit.getBukkitVersion());
+        versionCode = parseVersionCode(Bukkit.getBukkitVersion());
+    }
+
+    /** Parse numeric release components independently of the server suffix and without a running Bukkit server. */
+    public static int parseVersionCode(String value) {
+        Matcher matcher = pattern.matcher(value);
         if (matcher.find()) {
             String versionString = matcher.group("version");
-            versionCode = Version.parseVersion(versionString).getVersionCode();
+            return Version.parseVersion(versionString).getVersionCode();
         } else {
-            versionCode = 0;
+            return 0;
         }
     }
 }

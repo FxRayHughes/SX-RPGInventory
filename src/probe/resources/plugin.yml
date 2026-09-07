@@ -1,0 +1,12 @@
+name: SX-RPGInventory-Probe
+version: 1.0.0
+main: ru.endlesscode.rpginventory.probe.SXRPGInventoryProbe
+# Old 1.12 servers ignore this key; modern servers must not remap test materials into legacy mode.
+api-version: '1.13'
+depend: [SX-RPGInventory]
+softdepend: [SX-Attribute, SX-Item]
+description: Console-only real-server compatibility verification companion.
+commands:
+  sxrpgprobe:
+    description: Verify item codecs, isolated storage, or an SXRPGTest player.
+    usage: /sxrpgprobe codec | player <SXRPGTestName>

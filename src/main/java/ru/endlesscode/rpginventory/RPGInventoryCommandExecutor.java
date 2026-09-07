@@ -269,7 +269,8 @@ final class RPGInventoryCommandExecutor implements CommandExecutor {
         }
 
         final Player player = (Player) sender;
-        if (InventoryAPI.isRPGInventory(player.getOpenInventory().getTopInventory())) {
+        // InventoryView changed from class to interface; the bridge keeps this command binary-compatible.
+        if (InventoryAPI.isRPGInventory(ru.endlesscode.rpginventory.compat.InventoryViewCompatibility.top(player.getOpenInventory()))) {
             return;
         }
 

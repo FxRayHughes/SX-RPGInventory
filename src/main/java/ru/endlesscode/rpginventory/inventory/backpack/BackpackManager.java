@@ -20,7 +20,6 @@ package ru.endlesscode.rpginventory.inventory.backpack;
 
 import org.bukkit.Material;
 import org.bukkit.configuration.ConfigurationSection;
-import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
@@ -29,7 +28,7 @@ import org.bukkit.inventory.ItemStack;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import ru.endlesscode.inspector.report.Reporter;
+import ru.endlesscode.rpginventory.compat.PluginReporter;
 import ru.endlesscode.rpginventory.RPGInventory;
 import ru.endlesscode.rpginventory.event.listener.BackpackListener;
 import ru.endlesscode.rpginventory.inventory.InventoryManager;
@@ -37,12 +36,9 @@ import ru.endlesscode.rpginventory.inventory.slot.Slot;
 import ru.endlesscode.rpginventory.inventory.slot.SlotManager;
 import ru.endlesscode.rpginventory.item.Texture;
 import ru.endlesscode.rpginventory.misc.config.Config;
-import ru.endlesscode.rpginventory.misc.serialization.Serialization;
-import ru.endlesscode.rpginventory.utils.FileUtils;
 import ru.endlesscode.rpginventory.utils.ItemUtils;
 import ru.endlesscode.rpginventory.utils.Log;
 
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -61,10 +57,9 @@ public class BackpackManager {
     private static final String CONFIG_NAME = "backpacks.yml";
 
     private static final HashMap<String, BackpackType> BACKPACK_TYPES = new HashMap<>();
-    private static final HashMap<UUID, Backpack> BACKPACKS = new HashMap<>();
     private static int BACKPACK_LIMIT;
 
-    private static Reporter reporter;
+    private static PluginReporter reporter;
 
     public static boolean init(@NotNull RPGInventory instance) {
         if (!isEnabled()) {
@@ -101,11 +96,9 @@ public class BackpackManager {
                 return false;
             }
 
-            BACKPACKS.clear();
-            BackpackManager.loadBackpacks();
+            // Backpacks are loaded lazily under a backend lease instead of reading every saved file at startup.
 
             Log.i("{0} backpack type(s) has been loaded", BACKPACK_TYPES.size());
-            Log.i("{0} backpack(s) has been loaded", BACKPACKS.size());
 
             BACKPACK_LIMIT = Config.getConfig().getInt("backpacks.limit", 0);
 
@@ -160,24 +153,16 @@ public class BackpackManager {
             return false;
         }
 
-        Backpack backpack;
-        String bpUid = ItemUtils.getTag(bpItem, ItemUtils.BACKPACK_UID_TAG);
-        UUID uuid = bpUid.isEmpty() ? null : UUID.fromString(bpUid);
-        if (!BACKPACKS.containsKey(uuid)) {
-            if (uuid == null) {
-                backpack = type.createBackpack();
-                ItemUtils.setTag(bpItem, ItemUtils.BACKPACK_UID_TAG, backpack.getUniqueId().toString());
-            } else {
-                backpack = type.createBackpack(uuid);
-            }
-
-            BACKPACKS.put(backpack.getUniqueId(), backpack);
-        } else {
-            backpack = BACKPACKS.get(uuid);
+        String savedId = ItemUtils.getTag(bpItem, ItemUtils.BACKPACK_UID_TAG);
+        final UUID id;
+        try {
+            id = savedId.isEmpty() ? UUID.randomUUID() : UUID.fromString(savedId);
+        } catch (IllegalArgumentException failure) {
+            Log.w(failure, "Invalid backpack identity; refusing to replace it with an empty backpack");
+            return false;
         }
-
-        backpack.open(player);
-        return true;
+        if (savedId.isEmpty()) ItemUtils.setTag(bpItem, ItemUtils.BACKPACK_UID_TAG, id.toString());
+        return BackpackStorage.open(player, type, id);
     }
 
     @Nullable
@@ -185,51 +170,9 @@ public class BackpackManager {
         return BACKPACK_TYPES.get(bpId);
     }
 
+    /** Periodic snapshots cover only leased, active backpacks; old files remain available for lazy migration. */
     public static void saveBackpacks() {
-        Path folder = RPGInventory.getInstance().getDataPath().resolve("backpacks");
-
-        try {
-            Files.createDirectories(folder);
-            for (Map.Entry<UUID, Backpack> entry : BACKPACKS.entrySet()) {
-                Path bpFile = folder.resolve(entry.getKey().toString() + ".bp");
-                Serialization.save(entry.getValue(), bpFile);
-            }
-        } catch (IOException | NullPointerException e) {
-            Log.w(e, "Error on backpack save");
-        }
-    }
-
-    private static void loadBackpacks() {
-        try {
-            Path folder = RPGInventory.getInstance().getDataPath().resolve("backpacks");
-            Files.createDirectories(folder);
-
-            Files.list(folder)
-                    .filter((file) -> Files.isRegularFile(file) && file.toString().endsWith(".bp"))
-                    .forEach(BackpackManager::tryToLoadBackpack);
-        } catch (IOException e) {
-            Log.w(e, "Error on backpack loading");
-        }
-    }
-
-    private static void tryToLoadBackpack(@NotNull Path path) {
-        try {
-            loadBackpack(path);
-        } catch (IOException | InvalidConfigurationException e) {
-            Log.w(e);
-            FileUtils.resolveException(path);
-            Log.s("Error on loading backpack {0}", path.getFileName().toString());
-            Log.s("Will be created new backpack. Old file was renamed.");
-        }
-    }
-
-    private static void loadBackpack(@NotNull Path path) throws IOException, InvalidConfigurationException {
-        Backpack backpack = Serialization.loadBackpack(path);
-        if (backpack == null || backpack.isOverdue()) {
-            Files.delete(path);
-        } else {
-            BACKPACKS.put(backpack.getUniqueId(), backpack);
-        }
+        BackpackStorage.saveAll();
     }
 
     @Contract("null -> false")

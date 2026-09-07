@@ -55,7 +55,11 @@ public class BackpackType extends TexturedItem {
         this.id = config.getName();
         this.name = StringUtils.coloredLine(config.getString("name", id));
         this.lore = StringUtils.coloredLines(config.getStringList("lore"));
-        this.size = config.getInt("size", 56) < 56 ? config.getInt("size") : 56;
+        // A chest exposes at most 54 positions; silently clamping would strand persisted items outside the view.
+        this.size = config.getInt("size", 54);
+        if (this.size < 1 || this.size > 54) {
+            throw new IllegalArgumentException("Backpack size must be between 1 and 54: " + this.id);
+        }
 
         this.createItem();
     }

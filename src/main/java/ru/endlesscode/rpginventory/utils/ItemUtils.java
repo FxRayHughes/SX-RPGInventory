@@ -18,11 +18,9 @@
 
 package ru.endlesscode.rpginventory.utils;
 
-import com.comphenix.protocol.utility.MinecraftReflection;
-import com.comphenix.protocol.wrappers.nbt.NbtCompound;
 import org.bukkit.Material;
+import ru.endlesscode.rpginventory.compat.ItemCompatibility;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.Damageable;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
@@ -51,52 +49,31 @@ public class ItemUtils {
     public static final String FOOD_TAG = "food.id";
     public static final String PET_TAG = "pet.id";
 
+    /** The compatibility layer preserves unrelated metadata while using PDC or the legacy literal NBT key. */
     @NotNull
     public static ItemStack setTag(ItemStack item, @NotNull String tag, @NotNull String value) {
-        ItemStack bukkitItem = toBukkitItemStack(item);
-        if (isEmpty(bukkitItem)) {
-            return bukkitItem;
-        }
-
-        NbtCompound nbt = NbtFactoryMirror.fromItemCompound(bukkitItem);
-        if (!nbt.containsKey(tag)) {
-            nbt.put(tag, value);
-        }
-        NbtFactoryMirror.setItemTag(bukkitItem, nbt);
-
-        return bukkitItem;
+        if (isEmpty(item)) return item;
+        ItemCompatibility.setString(item, tag, value);
+        return item;
     }
 
+    /** Read the same persistent identity on both PDC-capable and pre-PDC servers. */
     @NotNull
     public static String getTag(@NotNull ItemStack item, @NotNull String tag) {
         return getTag(item, tag, "");
     }
 
+    /** Missing tags use the caller's default; a present identity must not be inferred from display text. */
     @NotNull
-    @SuppressWarnings("WeakerAccess")
     public static String getTag(@NotNull ItemStack item, @NotNull String tag, @NotNull String defaultValue) {
-        final ItemStack bukkitItem = toBukkitItemStack(item);
-        if (isEmpty(bukkitItem)) {
-            return "";
-        }
-
-        NbtCompound nbt = NbtFactoryMirror.fromItemCompound(bukkitItem);
-        return nbt.containsKey(tag) ? nbt.getString(tag) : defaultValue;
+        if (isEmpty(item)) return defaultValue;
+        return ItemCompatibility.getString(item, tag, defaultValue);
     }
 
+    /** Presence is checked using the same reader as identity resolution, including legacy imports. */
     @Contract("null, _ -> false")
-    public static boolean hasTag(@Nullable ItemStack originalItem, String tag) {
-        if (isEmpty(originalItem) || !originalItem.hasItemMeta()) {
-            return false;
-        }
-
-        ItemStack item = toBukkitItemStack(originalItem.clone());
-        if (isEmpty(item)) {
-            return false;
-        }
-
-        NbtCompound nbt = NbtFactoryMirror.fromItemCompound(item);
-        return nbt.containsKey(tag);
+    public static boolean hasTag(@Nullable ItemStack item, String tag) {
+        return isNotEmpty(item) && !getTag(item, tag).isEmpty();
     }
 
     public static boolean isItemHasDurability(ItemStack item) {
@@ -174,47 +151,36 @@ public class ItemUtils {
         return item;
     }
 
+    /** Resolve texture metadata through version-aware APIs; old damage predicates remain readable. */
     public static int getTextureData(@NotNull ItemStack itemStack) {
         ItemMeta meta = itemStack.getItemMeta();
         if (meta == null) {
             return 0;
         }
 
-        int data;
-        if (Config.texturesType == TexturesType.DAMAGE) {
-            data = ((Damageable) meta).getDamage();
-        } else if (meta.hasCustomModelData()) {
-            data = meta.getCustomModelData();
-        } else {
-            data = 0;
-        }
-        return data;
+        return Config.texturesType == TexturesType.DAMAGE
+                ? ItemCompatibility.getDamage(itemStack) : ItemCompatibility.getCustomModelData(itemStack);
     }
 
     private static void setTextureData(@NotNull ItemStack itemStack, int data) {
-        ItemMeta meta = itemStack.getItemMeta();
-        if (meta != null) {
-            if (Config.texturesType == TexturesType.DAMAGE) {
-                ((Damageable) meta).setDamage(data);
-            } else {
-                meta.setCustomModelData(data);
-            }
-            itemStack.setItemMeta(meta);
-        }
+        // Each helper commits its own meta, avoiding a stale second setItemMeta that erases the change.
+        if (Config.texturesType == TexturesType.DAMAGE) ItemCompatibility.setDamage(itemStack, data);
+        else ItemCompatibility.setCustomModelData(itemStack, data);
     }
 
     @Contract("null -> true")
     public static boolean isEmpty(@Nullable ItemStack item) {
-        return item == null || item.getType() == Material.AIR;
+        return ItemCompatibility.isEmpty(item);
     }
 
     @Contract("null -> false")
     public static boolean isNotEmpty(@Nullable ItemStack item) {
-        return item != null && item.getType() != Material.AIR;
+        return !ItemCompatibility.isEmpty(item);
     }
 
     @NotNull
     public static ItemStack toBukkitItemStack(ItemStack item) {
-        return MinecraftReflection.getBukkitItemStack(item);
+        // Modern Bukkit ItemStack already exposes all required metadata APIs; no NMS wrapper is necessary.
+        return item;
     }
 }

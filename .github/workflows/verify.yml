@@ -1,0 +1,56 @@
+name: Verify SX-RPGInventory
+
+# Keep the two-API integration matrix explicitly runnable by maintainers.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        paper: ['26.1.2.build.74-stable', '26.2.build.121-stable']
+    # These disposable services exercise the remote ownership contract instead of skipping it.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: sxrpg_test
+          POSTGRES_USER: sxrpg_test
+          POSTGRES_PASSWORD: sxrpg_ci_only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U sxrpg_test -d sxrpg_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+      redis:
+        image: redis:8
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      SX_RPG_TEST_POSTGRES_URL: jdbc:postgresql://localhost:5432/sxrpg_test
+      SX_RPG_TEST_POSTGRES_USER: sxrpg_test
+      SX_RPG_TEST_POSTGRES_PASSWORD: sxrpg_ci_only
+      SX_RPG_TEST_REDIS_URI: redis://localhost:6379/0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Test and package against the selected Paper API
+        run: bash ./gradlew clean build --no-daemon --console=plain -PpaperApiVersion=${{ matrix.paper }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verification-${{ matrix.paper }}
+          path: |
+            build/libs/
+            build/reports/tests/
+          if-no-files-found: ignore

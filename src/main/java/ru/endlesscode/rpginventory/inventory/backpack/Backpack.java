@@ -25,7 +25,9 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.jetbrains.annotations.NotNull;
 import ru.endlesscode.rpginventory.inventory.InventoryManager;
+import ru.endlesscode.rpginventory.compat.InventoryViewCompatibility;
 import ru.endlesscode.rpginventory.misc.config.Config;
+import ru.endlesscode.rpginventory.misc.serialization.ItemPayloadCodec;
 import ru.endlesscode.rpginventory.utils.Log;
 
 import java.util.*;
@@ -40,6 +42,8 @@ public class Backpack implements ConfigurationSerializable {
     private static final String BP_ID = "id";
     private static final String BP_TYPE = "type";
     private static final String BP_CONTENTS = "contents";
+    // Versioned full item payloads replace lossy Bukkit YAML item maps; old contents stay readable.
+    private static final String BP_ITEM_BYTES = "item-bytes-v1";
     private static final String BP_LAST_USE = "last-use";
 
     private final UUID id;
@@ -64,8 +68,11 @@ public class Backpack implements ConfigurationSerializable {
     public static Backpack deserialize(@NotNull Map<String, Object> map) {
         UUID id = UUID.fromString((String) map.get(BP_ID));
         BackpackType type = BackpackManager.getBackpackType((String) map.get(BP_TYPE));
-        List<ItemStack> contents = (List<ItemStack>) map.getOrDefault(BP_CONTENTS, Collections.emptyList());
-        long lastUse = (long) map.getOrDefault(BP_LAST_USE, 0L);
+        if (type == null) throw new IllegalArgumentException("Unknown saved backpack type: " + map.get(BP_TYPE));
+        List<ItemStack> contents = map.containsKey(BP_ITEM_BYTES)
+                ? ItemPayloadCodec.decode((List<?>) map.get(BP_ITEM_BYTES))
+                : (List<ItemStack>) map.getOrDefault(BP_CONTENTS, Collections.emptyList());
+        long lastUse = ((Number) map.getOrDefault(BP_LAST_USE, 0L)).longValue();
 
         Backpack backpack = new Backpack(type, id);
         backpack.setContents(contents.toArray(new ItemStack[0]));
@@ -80,13 +87,14 @@ public class Backpack implements ConfigurationSerializable {
         final Map<String, Object> serializedBackpack = new LinkedHashMap<>();
         serializedBackpack.put(BP_ID, this.id.toString());
         serializedBackpack.put(BP_TYPE, this.backpackType.getId());
-        serializedBackpack.put(BP_CONTENTS, this.contents);
+        serializedBackpack.put(BP_ITEM_BYTES, ItemPayloadCodec.encode(Arrays.asList(this.contents)));
         serializedBackpack.put(BP_LAST_USE, this.lastUse);
 
         return serializedBackpack;
     }
 
-    UUID getUniqueId() {
+    /** Persistent UUID is independent of type name and current carrier; it is the backend ownership key. */
+    public UUID getUniqueId() {
         return this.id;
     }
 
@@ -95,7 +103,8 @@ public class Backpack implements ConfigurationSerializable {
         return backpackType;
     }
 
-    void open(@NotNull Player player) {
+    /** Report cancelled/replaced opens so the storage adapter can release an unused ownership lease. */
+    boolean open(@NotNull Player player) {
         int realSize = (int) Math.ceil(this.backpackType.getSize() / 9.0) * 9;
         if (realSize > 54) {
             realSize = 54;
@@ -115,12 +124,34 @@ public class Backpack implements ConfigurationSerializable {
             }
         }
 
-        player.openInventory(inventory);
+        try {
+            player.openInventory(inventory);
+        } catch (RuntimeException failure) {
+            // A listener may throw after opening the view; never leave a writable view without its owner wrapper.
+            if (InventoryViewCompatibility.top(player.getOpenInventory()).getHolder() == holder) player.closeInventory();
+            throw failure;
+        }
+        // CraftBukkit can wrap the same native inventory in a different Bukkit object when opening it.
+        // This holder is unique to this open: it survives wrapping but rejects cancelled or redirected views.
+        if (InventoryViewCompatibility.top(player.getOpenInventory()).getHolder() != holder) return false;
         InventoryManager.get(player).setBackpack(this);
+        return true;
     }
 
     public void setContents(ItemStack[] contents) {
-        this.contents = contents;
+        // Pad expanded backpack types, but reject shrinking over nonempty slots instead of deleting items.
+        int size = this.backpackType.getSize();
+        for (int i = size; i < contents.length; i++) {
+            // Air variants arrived after 1.12; names preserve modern semantics without newer Material APIs.
+            String material = contents[i] == null ? "AIR" : contents[i].getType().name();
+            if (!"AIR".equals(material) && !"CAVE_AIR".equals(material) && !"VOID_AIR".equals(material)) {
+                throw new IllegalArgumentException("Backpack size reduction would discard saved items");
+            }
+        }
+        this.contents = new ItemStack[size];
+        for (int i = 0; i < Math.min(size, contents.length); i++) {
+            this.contents[i] = contents[i] == null ? null : contents[i].clone();
+        }
     }
 
     public void onUse() {

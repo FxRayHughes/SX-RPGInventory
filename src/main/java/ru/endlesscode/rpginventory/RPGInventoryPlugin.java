@@ -18,42 +18,6 @@
 
 package ru.endlesscode.rpginventory;
 
-import ru.endlesscode.inspector.bukkit.plugin.TrackedPlugin;
-import ru.endlesscode.inspector.bukkit.report.BukkitEnvironment;
-import ru.endlesscode.inspector.report.*;
-import ru.endlesscode.inspector.sentry.bukkit.SentryBukkitIntegration;
-import ru.endlesscode.rpginventory.utils.Log;
-
-import java.util.Arrays;
-import java.util.List;
-
-@SuppressWarnings("unused")
-public class RPGInventoryPlugin extends TrackedPlugin {
-
-    private static final List<String> INTEREST_PLUGINS = Arrays.asList(
-            "ProtocolLib", "Vault", "Mimic", "BattleLevels", "Skills", "Heroes", "RacesAndClasses",
-            "SkillAPI", "MyPet", "RPGPlayerLeveling", "PlaceholderAPI", "MMOItems", "QuantumRPG",
-            "MMOCore", "MMOInventory"
-    );
-
-    public RPGInventoryPlugin() {
-        super(RPGInventory.class, new BukkitEnvironment.Properties(INTEREST_PLUGINS));
-    }
-
-    @Override
-    protected final Reporter createReporter() {
-        String dsn = "@sentry_dsn@";
-        // Token will be replaced in compile time, so it can be empty
-        // noinspection ConstantConditions
-        if (dsn.isEmpty()) {
-            Log.w("It is unofficial build of RPGInventory.");
-            return null;
-        }
-
-        return new SentryReporter.Builder()
-                .setDsn(dsn)
-                .addIntegration(new SentryBukkitIntegration(this))
-                .focusOn(this)
-                .build();
-    }
+/** Keep the manifest entry point stable while using Bukkit's native JavaPlugin lifecycle. */
+public final class RPGInventoryPlugin extends RPGInventory {
 }

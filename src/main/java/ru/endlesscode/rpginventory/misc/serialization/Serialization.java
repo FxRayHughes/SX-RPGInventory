@@ -14,6 +14,8 @@ import ru.endlesscode.rpginventory.utils.FileUtils;
 import ru.endlesscode.rpginventory.utils.Log;
 
 import java.io.IOException;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
@@ -27,6 +29,28 @@ import java.util.zip.GZIPOutputStream;
 public class Serialization {
 
     private static final String ROOT_TAG = "data";
+
+    /** Create immutable compressed bytes on the server thread before submitting any database I/O. */
+    public static byte[] encode(Object data) throws IOException {
+        FileConfiguration yaml = new YamlConfiguration();
+        yaml.set(ROOT_TAG, data);
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (GZIPOutputStream stream = new GZIPOutputStream(bytes)) {
+            stream.write(yaml.saveToString().getBytes(StandardCharsets.UTF_8));
+        }
+        return bytes.toByteArray();
+    }
+
+    /** Decode only after ownership has been acquired; malformed records must never become default inventories. */
+    public static <T> T decode(byte[] bytes, Class<T> type) throws IOException, InvalidConfigurationException {
+        FileConfiguration yaml = new YamlConfiguration();
+        try (InputStreamReader reader = new InputStreamReader(new GZIPInputStream(new ByteArrayInputStream(bytes)), StandardCharsets.UTF_8)) {
+            yaml.load(reader);
+        }
+        Object value = yaml.get(ROOT_TAG);
+        if (!type.isInstance(value)) throw new InvalidConfigurationException("Unexpected stored inventory type");
+        return type.cast(value);
+    }
 
     public static void registerTypes() {
         ConfigurationSerialization.registerClass(InventorySnapshot.class);
@@ -89,7 +113,8 @@ public class Serialization {
         try (OutputStreamWriter stream = new OutputStreamWriter(new GZIPOutputStream(Files.newOutputStream(tempFile)), StandardCharsets.UTF_8)) {
             stream.write(serializedData.saveToString());
         }
-        Files.move(tempFile, file, StandardCopyOption.REPLACE_EXISTING);
+        // Preserve the previous save until the replacement is complete; never delete the target before saving.
+        Files.move(tempFile, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
     }
 
     @NotNull

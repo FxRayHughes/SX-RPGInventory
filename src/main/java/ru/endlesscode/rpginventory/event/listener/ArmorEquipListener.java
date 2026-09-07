@@ -19,14 +19,12 @@
 package ru.endlesscode.rpginventory.event.listener;
 
 import org.bukkit.Material;
-import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Event;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
-import org.bukkit.event.block.BlockDispenseArmorEvent;
 import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
@@ -56,6 +54,23 @@ import java.util.Objects;
  * All rights reserved 2014 - 2016 © «EndlessCode Group»
  */
 public class ArmorEquipListener implements Listener {
+    /** Keep the 1.13+ dispenser event out of this class so Bukkit 1.12 can register its other armor handlers. */
+    public ArmorEquipListener() {
+        try {
+            Class.forName("org.bukkit.event.block.BlockDispenseArmorEvent");
+        } catch (ClassNotFoundException legacyServer) {
+            return; // Bukkit 1.12 has no target-aware armor dispenser event.
+        }
+        try {
+            Listener listener = (Listener) Class.forName(
+                    "ru.endlesscode.rpginventory.event.listener.DispenseArmorListener")
+                    .getConstructor().newInstance();
+            RPGInventory.getInstance().getServer().getPluginManager().registerEvents(listener, RPGInventory.getInstance());
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("Cannot register armor dispenser validation", failure);
+        }
+    }
+
     @EventHandler(priority = EventPriority.HIGH)
     public void onQuickEquip(@NotNull PlayerInteractEvent event) {
         final Player player = event.getPlayer();
@@ -171,38 +186,4 @@ public class ArmorEquipListener implements Listener {
         }
     }
 
-    @EventHandler
-    public void onDispenseEquip(BlockDispenseArmorEvent event) {
-        if (event.getTargetEntity().getType() == EntityType.PLAYER) {
-            ArmorType type = ArmorType.matchType(event.getItem());
-            Player player = (Player) event.getTargetEntity();
-
-            if (this.hasInventoryArmorByType(type, player)) {
-                return;
-            }
-            if (InventoryManager.playerIsLoaded(player)) {
-                Slot armorSlot = SlotManager.instance().getSlot(type.name());
-                event.setCancelled(armorSlot != null
-                        && !InventoryManager.validateArmor(player, InventoryAction.PLACE_ONE, armorSlot, event.getItem())
-                );
-            }
-        }
-    }
-
-    //Read helpers \:D/
-    private boolean hasInventoryArmorByType(ArmorType type, Player player) {
-        switch (type) {
-            case HELMET:
-                return player.getInventory().getHelmet() != null;
-            case CHESTPLATE:
-                return player.getInventory().getChestplate() != null;
-            case LEGGINGS:
-                return player.getInventory().getLeggings() != null;
-            case BOOTS:
-                return player.getInventory().getBoots() != null;
-            case UNKNOWN:
-            default:
-                return true; //Why no?
-        }
-    }
 }

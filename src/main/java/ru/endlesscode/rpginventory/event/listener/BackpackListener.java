@@ -28,12 +28,14 @@ import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.jetbrains.annotations.NotNull;
 import ru.endlesscode.rpginventory.RPGInventory;
 import ru.endlesscode.rpginventory.api.InventoryAPI;
+import ru.endlesscode.rpginventory.compat.InventoryViewCompatibility;
 import ru.endlesscode.rpginventory.inventory.ActionType;
 import ru.endlesscode.rpginventory.inventory.InventoryManager;
 import ru.endlesscode.rpginventory.inventory.PlayerWrapper;
@@ -41,6 +43,7 @@ import ru.endlesscode.rpginventory.inventory.backpack.Backpack;
 import ru.endlesscode.rpginventory.inventory.backpack.BackpackHolder;
 import ru.endlesscode.rpginventory.inventory.backpack.BackpackManager;
 import ru.endlesscode.rpginventory.inventory.backpack.BackpackUpdater;
+import ru.endlesscode.rpginventory.inventory.backpack.BackpackStorage;
 import ru.endlesscode.rpginventory.inventory.slot.Slot;
 import ru.endlesscode.rpginventory.inventory.slot.SlotManager;
 import ru.endlesscode.rpginventory.utils.ItemUtils;
@@ -83,6 +86,17 @@ public class BackpackListener implements Listener {
         Slot backpackSlot = SlotManager.instance().getBackpackSlot();
 
         if (inventory.getHolder() instanceof BackpackHolder) {
+            // Number-key transfers can insert a backpack without ever using the cursor.
+            if (event.getHotbarButton() >= 0 && BackpackManager.isBackpack(player.getInventory().getItem(event.getHotbarButton()))) {
+                event.setCancelled(true);
+                return;
+            }
+            // The named click was added after 1.12; comparing names avoids linking an absent enum field.
+            if ("SWAP_OFFHAND".equals(event.getClick().name())
+                    && BackpackManager.isBackpack(player.getInventory().getItemInOffHand())) {
+                event.setCancelled(true);
+                return;
+            }
             // Click inside backpack
             if (BackpackManager.isBackpack(event.getCurrentItem())
                     || BackpackManager.isBackpack(event.getCursor())
@@ -99,7 +113,7 @@ public class BackpackListener implements Listener {
 
             BackpackUpdater.update(inventory, InventoryManager.get(player).getBackpack());
         } else if (backpackSlot != null
-                && (event.getRawSlot() >= event.getView().getTopInventory().getSize()
+                && (event.getRawSlot() >= InventoryViewCompatibility.top(event.getView()).getSize()
                 || event.getSlot() == backpackSlot.getSlotId()
                 && InventoryAPI.isRPGInventory(event.getInventory()))
                 && BackpackManager.backpackLimitReached(player)
@@ -113,13 +127,32 @@ public class BackpackListener implements Listener {
         }
     }
 
+    /** Dragging must preserve backpack size limits and cannot insert another portable backpack. */
+    @EventHandler(ignoreCancelled = true)
+    public void onBackpackDrag(InventoryDragEvent event) {
+        if (!(event.getInventory().getHolder() instanceof BackpackHolder)
+                || !(event.getWhoClicked() instanceof Player)) return;
+        Player player = (Player) event.getWhoClicked();
+        if (!InventoryManager.playerIsLoaded(player)) return;
+        Backpack backpack = InventoryManager.get(player).getBackpack();
+        if (backpack == null) { event.setCancelled(true); return; }
+        for (int raw : event.getRawSlots()) {
+            if (raw < event.getInventory().getSize()
+                    && (raw >= backpack.getType().getSize() || BackpackManager.isBackpack(event.getOldCursor()))) {
+                event.setCancelled(true);
+                return;
+            }
+        }
+        BackpackUpdater.update(event.getInventory(), backpack);
+    }
+
+    /** Closing still captures recovery bytes after lease expiry; interaction guards already prevent new edits. */
     @EventHandler
     public void onBackpackClose(@NotNull InventoryCloseEvent event) {
         Inventory inventory = event.getInventory();
         Player player = (Player) event.getPlayer();
 
-        if (!InventoryManager.playerIsLoaded(player)
-                || !(inventory.getHolder() instanceof BackpackHolder)) {
+        if (!(inventory.getHolder() instanceof BackpackHolder)) {
             return;
         }
 
@@ -130,7 +163,8 @@ public class BackpackListener implements Listener {
             return;
         }
 
-        backpack.onUse();
+        // Capture final contents, including drag operations, before clearing the player's open-backpack reference.
+        BackpackStorage.close(backpack, java.util.Arrays.copyOf(inventory.getContents(), backpack.getType().getSize()));
         playerWrapper.setBackpack(null);
     }
 

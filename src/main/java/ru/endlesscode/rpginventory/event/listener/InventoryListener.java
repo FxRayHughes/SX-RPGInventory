@@ -36,11 +36,12 @@ import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import ru.endlesscode.inspector.bukkit.scheduler.TrackedBukkitRunnable;
+// Use Bukkit scheduling directly; the old wrapper implements an obsolete Plugin interface.
+import org.bukkit.scheduler.BukkitRunnable;
 import ru.endlesscode.rpginventory.RPGInventory;
 import ru.endlesscode.rpginventory.api.InventoryAPI;
 import ru.endlesscode.rpginventory.compat.SoundCompat;
-import ru.endlesscode.rpginventory.compat.mypet.MyPetManager;
+import ru.endlesscode.rpginventory.compat.OptionalMyPetBridge;
 import ru.endlesscode.rpginventory.event.PlayerInventoryLoadEvent;
 import ru.endlesscode.rpginventory.inventory.ActionType;
 import ru.endlesscode.rpginventory.inventory.InventoryLocker;
@@ -146,7 +147,7 @@ public class InventoryListener implements Listener {
         if (ItemUtils.isEmpty(inventory.getItemInMainHand()) || item.equals(inventory.getItemInMainHand())) {
             final Slot slot = InventoryManager.getQuickSlot(slotId);
             if (slot != null) {
-                new TrackedBukkitRunnable() {
+                new BukkitRunnable() {
                     @Override
                     public void run() {
                         InventoryUtils.heldFreeSlot(player, slotId, InventoryUtils.SearchType.NEXT);
@@ -180,6 +181,8 @@ public class InventoryListener implements Listener {
                 }
 
                 event.setCancelled(true);
+                // The entire ground stack now belongs to this slot; another matching cup must not receive a copy.
+                return;
             }
         }
     }
@@ -329,7 +332,7 @@ public class InventoryListener implements Listener {
                 }
             } else if (slot.getSlotType() == Slot.SlotType.PET) {
                 if (RPGInventory.isMyPetHooked()) {
-                    event.setCancelled(!MyPetManager.validatePet(player, action, currentItem, cursor));
+                    event.setCancelled(!OptionalMyPetBridge.validatePet(player, action, currentItem, cursor));
                 } else {
                     event.setCancelled(!InventoryManager.validatePet(player, action, currentItem, cursor));
                 }
@@ -342,7 +345,7 @@ public class InventoryListener implements Listener {
             }
 
             if (!event.isCancelled()) {
-                BukkitRunnable cupPlacer = new TrackedBukkitRunnable() {
+                BukkitRunnable cupPlacer = new BukkitRunnable() {
                     @Override
                     public void run() {
                         ItemStack currentItem = inventory.getItem(rawSlot);
@@ -376,7 +379,8 @@ public class InventoryListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void afterInventoryClick(@NotNull final InventoryClickEvent event) {
-        if (event.getClick() == ClickType.SWAP_OFFHAND && event.isCancelled()) {
+        // SWAP_OFFHAND was added after 1.12; resolving its enum field would break every legacy inventory click.
+        if ("SWAP_OFFHAND".equals(event.getClick().name()) && event.isCancelled()) {
             syncOffhandSlot((Player) event.getWhoClicked());
         }
     }
@@ -385,7 +389,7 @@ public class InventoryListener implements Listener {
     // Issue: https://hub.spigotmc.org/jira/browse/SPIGOT-6145
     private void syncOffhandSlot(Player player) {
         final PlayerInventory inventory = player.getInventory();
-        new TrackedBukkitRunnable() {
+        new BukkitRunnable() {
             @Override
             public void run() {
                 inventory.setItemInOffHand(inventory.getItemInOffHand());
@@ -451,7 +455,7 @@ public class InventoryListener implements Listener {
         }
 
         if (actionType == ActionType.DROP) {
-            new TrackedBukkitRunnable() {
+            new BukkitRunnable() {
                 @Override
                 public void run() {
                     inventory.setItem(rawSlot, slot.getCup());

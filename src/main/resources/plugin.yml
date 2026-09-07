@@ -1,15 +1,29 @@
+# Preserve the public Java package and dependency alias used by existing integrations.
+name: SX-RPGInventory
+main: ru.endlesscode.rpginventory.RPGInventoryPlugin
+version: '${version}'
+# 1.12 ignores this field; modern servers must not rewrite materials through legacy mode.
+api-version: '1.13'
+authors: [OsipXD, EndlessCode Group, FxRayHughes]
+provides: [RPGInventory]
 depend:
-  - ProtocolLib
   - Vault
 softdepend:
+  # Modern servers prefer PacketEvents; ProtocolLib remains available for older deployments.
+  - packetevents
+  - ProtocolLib
+  - SX-Item
   - Mimic
   - MyPet
   - PlaceholderAPI
+  - ChestSort
+loadbefore:
+  - SX-Attribute
 
 commands:
   rpginventory:
-    description: RPGInventory command.
-    aliases: [rpginv]
+    description: SX-RPGInventory equipment and backpack management.
+    aliases: [rpginv, sxrpginv, sxri]
     usage: /<command>
 
 permissions:

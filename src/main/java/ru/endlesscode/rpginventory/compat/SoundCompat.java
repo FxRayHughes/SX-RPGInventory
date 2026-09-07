@@ -240,7 +240,7 @@ public enum SoundCompat {
 
         for (String name : versionDependentNames) {
             try {
-                return cached = Sound.valueOf(name);
+                return cached = ServerCompatibility.namedConstant(Sound.class, name);
             } catch (IllegalArgumentException ignore) {
                 // try next
             }

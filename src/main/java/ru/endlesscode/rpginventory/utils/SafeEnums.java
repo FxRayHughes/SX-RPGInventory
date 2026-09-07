@@ -1,7 +1,6 @@
 package ru.endlesscode.rpginventory.utils;
 
 import org.bukkit.DyeColor;
-import org.bukkit.entity.Cat;
 import org.bukkit.entity.Horse;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -27,11 +26,6 @@ public class SafeEnums {
     @Nullable
     public static Horse.Style getHorseStyle(String name) {
         return valueOf(Horse.Style.class, name, "horse style");
-    }
-
-    @Nullable
-    public static Cat.Type getCatType(String name) {
-        return valueOf(Cat.Type.class, name, "cat type");
     }
 
     @NotNull

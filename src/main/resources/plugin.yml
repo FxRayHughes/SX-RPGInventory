@@ -1,15 +1,15 @@
-# Preserve the public Java package and dependency alias used by existing integrations.
+# 保留公开 Java 包名及依赖别名，确保已有插件集成仍可识别。
 name: SX-RPGInventory
 main: ru.endlesscode.rpginventory.RPGInventoryPlugin
 version: '${version}'
-# 1.12 ignores this field; modern servers must not rewrite materials through legacy mode.
+# 1.12 忽略此字段；现代服务端依此避免按旧版模式改写物品材质。
 api-version: '1.13'
 authors: [OsipXD, EndlessCode Group, FxRayHughes]
 provides: [RPGInventory]
 depend:
   - Vault
 softdepend:
-  # Modern servers prefer PacketEvents; ProtocolLib remains available for older deployments.
+  # 现代服务端优先使用 PacketEvents，旧部署仍可使用 ProtocolLib。
   - packetevents
   - ProtocolLib
   - SX-Item
@@ -22,36 +22,36 @@ loadbefore:
 
 commands:
   rpginventory:
-    description: SX-RPGInventory equipment and backpack management.
+    description: SX-RPGInventory 装备与背包管理。
     aliases: [rpginv, sxrpginv, sxri]
     usage: /<command>
 
 permissions:
   rpginventory.admin:
-    description: Gives access to all RPGInventory commands
+    description: 允许使用全部装备背包管理命令
     default: op
     children:
       rpginventory.user: true
       rpginventory.open.others: true
   rpginventory.user:
-    description: Gives access to all user commands
+    description: 允许使用全部玩家命令
     default: true
     children:
       rpginventory.open: true
   rpginventory.open:
-    description: Allows you to open inventory by command
+    description: 允许通过命令打开自己的装备背包
     default: true
   rpginventory.open.others:
-    description: Allows you to open your or other player's inventory by command
+    description: 允许通过命令查看自己或其他玩家的装备背包
     default: op
     children:
       rpginventory.open: true
   rpginventory.keep.items:
-    description: Player with this permission will not lose any items on dead
+    description: 玩家死亡时保留全部物品
     default: op
   rpginventory.keep.armor:
-    description: Player with this permission will not lose armor on dead
+    description: 玩家死亡时保留护甲
     default: op
   rpginventory.keep.rpginv:
-    description: Player with this permission will not lose items from RPGInventory on dead
+    description: 玩家死亡时保留装备背包内的物品
     default: op

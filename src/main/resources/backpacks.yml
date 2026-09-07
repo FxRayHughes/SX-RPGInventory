@@ -1,19 +1,21 @@
+# 便携背包示例；small、medium、large 是稳定类型 ID，已有背包引用这些 ID，请勿随意更名。
+# size 为可用格数；缩小容量前应先清空被移除的槽位。
 backpacks:
   small:
     item: DIAMOND_HOE:20
-    name: "&7Small backpack"
+    name: "&7小型背包"
     lore:
-      - "&e&oIt seems a trifle, but useful"
+      - "&e&o小巧轻便，方便随身携带"
     size: 5
   medium:
     item: DIAMOND_HOE:21
-    name: "&6Medium backpack"
+    name: "&6中型背包"
     lore:
-      - "&e&oHere your text"
+      - "&e&o可在这里填写背包说明"
     size: 10
   large:
     item: DIAMOND_HOE:22
-    name: "&5Large backpack"
+    name: "&5大型背包"
     lore:
-      - "&e&oOh, its really big!"
+      - "&e&o容量充足，适合长途冒险"
     size: 15

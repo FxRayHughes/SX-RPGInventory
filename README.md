@@ -2,7 +2,7 @@
 
 基于 [EndlessCodeGroup/RPGInventory](https://github.com/EndlessCodeGroup/RPGInventory) 的现代化分支，为 SX-Attribute、SX-Item 提供 RPG 装备槽和便携背包，兼容目标覆盖 Paper 1.12.2、1.16.5、1.20.6、1.21.11、26.2、Spigot 26.1.2 和 Leaf 26.2。
 
-当前为 `3.0.0-SNAPSHOT`。默认与 26.2 API 的 Gradle 构建各通过 73 项 Java 测试，无失败或跳过；七种服务端 × SQLite/PostgreSQL/Redis 的 21 组玩家生命周期、七服原生槽和现代五服 PacketEvents 专项均已通过。Spigot 26.1.2 的测试临时隔离了不支持该版本的 Adyeshach 2.1.30，不能据此声明原有全部插件组合兼容。具体验收范围见 [验证记录](docs/MODERNIZATION.md) 和 [实机矩阵](docs/SERVER-MATRIX.md)。
+当前源码已加入 MySQL 和默认中文配置，两套 API 构建各通过 87 项测试，无失败或跳过。当前产物及新增实测见 [MySQL 与中文更新](docs/MYSQL-CHINESE.md)；此前三后端、原生槽和 PacketEvents 的基线实测保留在 [服务器矩阵](docs/SERVER-MATRIX.md)，不同产物的证据分开记录。
 
 ## 环境与依赖
 
@@ -13,6 +13,8 @@
 - Mimic、PlaceholderAPI 可选。旧版 MyPet 桥默认排除，启用需要 `-PwithMyPet=true`、私有仓库凭据和独立兼容验证。
 
 插件名为 `SX-RPGInventory`，数据目录为 `plugins/SX-RPGInventory`。保留 `ru.endlesscode.rpginventory` 公共包、`RPGInventory` 插件别名和 `rpginventory.*` 权限。不要同时安装上游插件。
+
+默认语言为中文（`language: zh`），旧配置缺少语言字段时也使用中文；已有明确语言选择会保留。默认配置注释使用中文。
 
 ## Gradle
 
@@ -35,7 +37,7 @@ $env:JAVA_HOME = 'D:/Java/jdk-25.0.1'
 
 Linux/macOS 使用 `./gradlew`。默认 Paper API 为 `26.1.2.build.74-stable`。插件产物为 `build/libs/SX-RPGInventory-3.0.0-SNAPSHOT.jar`；`-plain.jar` 不包含运行库，不用于服务器安装。
 
-真实 PostgreSQL / Redis 测试需要配置 [仓储测试环境变量](docs/STORAGE.md)；缺少变量时对应测试会跳过。实机诊断插件单独使用 `./gradlew.bat probeJar --no-daemon` 生成 `build/libs/SX-RPGInventory-Probe-1.0.0.jar`，不随主插件打包。
+真实 PostgreSQL / MySQL / Redis 测试需要配置 [仓储测试环境变量](docs/STORAGE.md)；缺少变量时对应测试会跳过。实机诊断插件单独使用 `./gradlew.bat probeJar --no-daemon` 生成 `build/libs/SX-RPGInventory-Probe-1.0.0.jar`，不随主插件打包。
 
 Windows 若出现 `UnixDomainSockets.connect0: Invalid argument`，在项目根目录使用较短的套接字目录后重试：
 
@@ -45,7 +47,7 @@ $socketPath = (Resolve-Path '.gradle/sockets').Path.Replace([char]92, [char]47)
 $env:JAVA_TOOL_OPTIONS = "-Djdk.net.unixdomain.tmpdir=$socketPath"
 ```
 
-此变量只用于当前终端。GitHub Actions 提供手动触发的双 API 工作流及临时 PostgreSQL / Redis 服务；本地通过不代表远端 CI 已执行。
+此变量只用于当前终端。GitHub Actions 提供手动触发的双 API 工作流及临时 PostgreSQL / MySQL / Redis 服务；本地通过不代表远端 CI 已执行。
 
 ## Maven publication
 
@@ -67,9 +69,9 @@ $env:JAVA_TOOL_OPTIONS = "-Djdk.net.unixdomain.tmpdir=$socketPath"
 
 ## 存储和 SX 联动
 
-默认 SQLite，也可选择 PostgreSQL 或 Redis。玩家装备和背包共用所选后端，使用异步队列、条件写入、所有权租约和恢复日志。物品根据服务端能力使用 Paper 原生完整字节、现代 Spigot 的组件 NBT 或旧 CraftBukkit 的完整 NBT 格式；保留槽位空洞和自定义数据。部署、旧数据迁移及故障恢复见 [存储操作说明](docs/STORAGE.md)。
+默认 SQLite，也可选择 PostgreSQL、MySQL 8.x 或 Redis。玩家装备和背包共用所选后端，使用异步队列、条件写入、所有权租约和恢复日志。MySQL 使用 InnoDB、LONGBLOB 和二进制身份列，取得行锁后再读取数据库时钟，避免锁等待使过期租约被错误接受。物品根据服务端能力使用 Paper 原生完整字节、现代 Spigot 的组件 NBT 或旧 CraftBukkit 的完整 NBT 格式；保留槽位空洞和自定义数据。部署、旧数据迁移及故障恢复见 [存储操作说明](docs/STORAGE.md)。
 
-装备加载、点击和拖拽后刷新 SX-Attribute 已有的 RPG 数据源。物品匹配规则和纹理模板支持 `sxitem:<物品ID>`，通过 SX-Item 管理器识别、取得和更新物品。七服实际穿脱、原生槽同步、属性增减/去重、踢出重连与三后端重启恢复已通过；具体验收条件见服务器矩阵。
+装备加载、点击和拖拽后刷新 SX-Attribute 已有的 RPG 数据源。物品匹配规则和纹理模板支持 `sxitem:<物品ID>`，通过 SX-Item 管理器识别、取得和更新物品。七服实际穿脱、原生槽同步、属性增减/去重、踢出重连与 SQLite / PostgreSQL / Redis 三后端重启恢复已通过；新增 MySQL 后端须单独完成本轮验收，具体验收条件见服务器矩阵。
 
 已采纳的上游建议、历史缺陷判断及 API 使用方式见 [上游 issue 处理记录](docs/UPSTREAM-ISSUES.md)。
 

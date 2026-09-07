@@ -1,4 +1,4 @@
-#version: 2.0 | Do not remove this line!
+#version: 2.0 | 请勿删除此行，插件据此识别语言文件格式。
 title: RPG Inventory
 
 locked.name: &cLocked slot
@@ -15,6 +15,7 @@ error.level: &6To purchase slots you need {0} lvl
 error.buyable: &6To purchase this slots you need {0} gold. Click on it again in the next 10 seconds to confirm the purchase.
 error.previous: &6First unlock previous slots
 error.rp.denied: &cYou must allow downloading the resource-pack!
+error.player.loading: &eEquipment data is loading. Please try again shortly.
 error.item.level: &6Required &c{0} &6level
 error.item.class: &6Required class &c{0}
 error.mount.owner: &6Mount belongs to {0}

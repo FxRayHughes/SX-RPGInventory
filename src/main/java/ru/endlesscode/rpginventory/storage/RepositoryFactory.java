@@ -35,6 +35,13 @@ public final class RepositoryFactory {
                     config.getString("storage.postgresql.username", "minecraft"),
                     secret(config, "storage.postgresql.password", "storage.postgresql.password-env"), namespace,
                     config.getInt("storage.postgresql.pool-size", 4));
+            case "MYSQL":
+                // MySQL owns the same complete records as other backends; configuration never enables a dual write.
+                return new JdbcInventoryRepository(
+                    config.getString("storage.mysql.url", "jdbc:mysql://localhost:3306/minecraft"),
+                    config.getString("storage.mysql.username", "minecraft"),
+                    secret(config, "storage.mysql.password", "storage.mysql.password-env"), namespace,
+                    config.getInt("storage.mysql.pool-size", 4));
             case "REDIS":
                 return new RedisInventoryRepository(
                     URI.create(secret(config, "storage.redis.uri", "storage.redis.uri-env")), namespace);

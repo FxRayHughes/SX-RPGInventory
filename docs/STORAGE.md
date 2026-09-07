@@ -2,7 +2,7 @@
 
 ## 后端选择
 
-`storage.backend` 接受 `SQLITE`、`POSTGRESQL`、`REDIS`。共享装备的服务器使用相同后端、数据库和 namespace；无关服务器必须隔离 namespace。名称允许 1–64 个字母、数字、下划线或连字符。存储配置仅在插件启动时读取，修改后完整重启。
+`storage.backend` 接受 `SQLITE`、`POSTGRESQL`、`MYSQL`、`REDIS`。共享装备的服务器使用相同后端、数据库和 namespace；无关服务器必须隔离 namespace。名称允许 1–64 个字母、数字、下划线或连字符，区分大小写。存储配置仅在插件启动时读取，修改后完整重启。
 
 共享数据的节点还必须使用能相互读取物品格式的 Minecraft 版本。多版本兼容指同一个插件可在这些服务端运行，不代表 1.12 可以读取 26.x 的组件物品；混合世代的服务端应配置不同 namespace。原生数据修复只负责受支持的向新版本升级，不会将新物品静默降级。
 
@@ -23,6 +23,26 @@ storage:
 ```
 
 环境变量由服务器进程继承。显式配置但缺少变量时启动失败，不回退空密码。固定表名为 `sx_rpginventory_records`，主键由 namespace 和 `player:<UUID>` / `backpack:<UUID>` 组成。
+
+MySQL 8.x 的数据库和具有建表、查询、写入权限的账号同样需要预先准备：
+
+```yaml
+storage:
+  backend: MYSQL
+  namespace: survival
+  lease-seconds: 60
+  mysql:
+    url: jdbc:mysql://localhost:3306/minecraft
+    username: minecraft
+    password-env: SX_RPG_MYSQL_PASSWORD
+    pool-size: 4
+```
+
+Connector/J 8.4.0 随插件打包并兼容 Java 8。表固定使用 InnoDB 和 LONGBLOB；namespace、record_key、owner 使用 VARBINARY 和 UTF-8 字节绑定，因此不受数据库默认大小写不敏感排序规则或尾空格比较影响。若已有同名表采用不兼容的引擎或字段类型，启动会拒绝使用。连接 URL 可按实际环境配置 TLS；账号密码优先放在环境变量中。
+
+连接参数必须保留 Connector/J 默认的 `useAffectedRows=false`；不支持改为 `true`。所有权判断依赖匹配行数，同一毫秒内重复获取或续租可能没有字段变化，按实际变更行数计数会把成功操作误判为冲突。
+
+MySQL 的 `NOW()` / `CURRENT_TIMESTAMP` 固定在当前语句开始时，可能早于行锁等待结束。本实现先在事务内锁定记录，再用独立语句读取数据库毫秒时间，然后持锁执行 CAS 和租约判断。等待期间到期的保存/续租会被拒绝，过期后的新所有者可以接管。上线前应确认 InnoDB 持久化设置（例如 `innodb_flush_log_at_trx_commit=1`）、备份策略及 `max_allowed_packet` 能容纳最大的物品快照；LONGBLOB 的容量不意味着传输包限制会自动调整。
 
 Redis 是独立主存储，当前不作为其他后端的缓存：
 
@@ -67,4 +87,8 @@ storage:
 
 ## 集成测试
 
-`RemoteRepositoryTest` 使用 `SX_RPG_TEST_POSTGRES_URL`、`SX_RPG_TEST_POSTGRES_USER`、`SX_RPG_TEST_POSTGRES_PASSWORD` 和 `SX_RPG_TEST_REDIS_URI`。务必使用可丢弃的独立测试数据库；随机 namespace 可能留下测试数据。缺少变量的测试会跳过，跳过不代表通过。
+`RemoteRepositoryTest` 使用 `SX_RPG_TEST_POSTGRES_URL`、`SX_RPG_TEST_POSTGRES_USER`、`SX_RPG_TEST_POSTGRES_PASSWORD` 和 `SX_RPG_TEST_REDIS_URI`。`MysqlInventoryRepositoryTest` 使用 `SX_RPG_TEST_MYSQL_URL`、`SX_RPG_TEST_MYSQL_USER`、`SX_RPG_TEST_MYSQL_PASSWORD`。
+
+MySQL 测试实际覆盖大于普通 BLOB 上限的二进制往返、连接池重开、namespace/owner 大小写及尾空格、并发 CAS 和 acquire/save/renew 的锁等待过期窗口。锁等待测试通过 `performance_schema.data_lock_waits` 与 `performance_schema.threads` 确认目标操作已经阻塞，因此测试账号除测试库权限外还需 `SELECT ON performance_schema.*`；正常插件账号不需要这项诊断权限。工作流仅给可丢弃的测试容器授予此权限。
+
+务必使用可丢弃的独立测试数据库；随机 namespace 可能留下测试数据。缺少变量的测试会跳过，跳过不代表通过。新增 MySQL 测试在执行成功前不能视为已经验收。

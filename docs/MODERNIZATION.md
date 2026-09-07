@@ -2,13 +2,15 @@
 
 来源：EndlessCodeGroup/RPGInventory 的 develop 分支。当前分支：`codex/sx-rpginventory-modern`。上游建议的逐项判断见 [UPSTREAM-ISSUES.md](UPSTREAM-ISSUES.md)。
 
+后续 MySQL 与中文更新已完成两套 API 各 87 项测试，新增结果见 [MYSQL-CHINESE.md](MYSQL-CHINESE.md)。本页下方的 73 项测试、2265 个普通类及三后端数据是首版基线，保留用于追溯；当前包包含 MySQL 驱动，共 4079 个普通类，均不高于 Java 8。
+
 ## 实现范围
 
 - 标准 Gradle 9.3.1 Wrapper、Shadow 9.3.2、JDK 25 工具链，生产普通类保持 Java 8 字节码；移除 BukkitGradle、Bintray 和旧 CI。提供薄 API 包、源码及 Maven 发布描述，常规构建不发布。
 - SX-RPGInventory 插件标识，保留原公共 Java 包、权限和 RPGInventory 别名；隔离 Mimic、MyPet、PlaceholderAPI 及数据包库的可选类加载。
 - SX-Item 模板、身份和更新桥；SX-Attribute 延迟合并刷新，先从玩家原生背包同步护甲、快捷栏和副手镜像，再更新属性。提供提交后的不可取消装备变化事件。
 - 1.20.5+ 优先 PacketEvents，旧版优先 ProtocolLib；不可变主线程快照用于合成槽覆盖和自动配方保护，重载和停用释放监听器。
-- SQLite、PostgreSQL、Redis 玩家及背包持久化，异步生命周期、所有权租约、CAS、恢复日志和停服排空；完整原生物品编码与旧 gzip YAML 按需迁移。
+- SQLite、PostgreSQL、MySQL、Redis 玩家及背包持久化，异步生命周期、所有权租约、CAS、恢复日志和停服排空；完整原生物品编码与旧 gzip YAML 按需迁移。
 - 可选 ChestSort 集成，保护固定及保留槽，允许普通储物格排序；未知类型、容量缩减及序列化失败时保留最后可用数据并冻结交互。
 
 ## 实测发现并修复

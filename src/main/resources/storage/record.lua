@@ -1,5 +1,5 @@
--- One key per inventory keeps every operation atomic, including fencing and lease release.
--- Payloads never get a TTL: ownership expiration must not delete equipment or backpacks.
+-- 每份背包使用独立键，确保版本校验、保存与租约释放在同一原子操作内完成。
+-- 物品数据不设置过期时间；租约到期只能释放所有权，不能删除装备或背包。
 local key = KEYS[1]
 local op = ARGV[1]
 local owner = ARGV[2]

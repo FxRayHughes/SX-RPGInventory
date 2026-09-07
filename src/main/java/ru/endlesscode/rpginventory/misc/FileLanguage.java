@@ -42,21 +42,30 @@ import java.util.Properties;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/** 使用 UTF-8 读取语言文件，并以中文补齐旧文件缺少的消息，保留服主已配置的翻译。 */
 public class FileLanguage {
+    /** 默认语言与内置资源文件名保持一致，缺省配置和缺失翻译共用同一个来源。 */
+    public static final String DEFAULT_LOCALE = "zh";
     private final RPGInventory plugin;
     private final HashMap<String, MessageFormat> messageCache = new HashMap<>();
     private final Properties language = new Properties();
     @NotNull
     private final Path langFile;
 
+    /** 只为不存在的文件写入默认内容；已有语言文件仍由服主维护。 */
     public FileLanguage(RPGInventory plugin) {
         this.plugin = plugin;
-        String locale = Config.getConfig().getString("language");
+        String locale = resolveLocale(Config.getConfig().getString("language", DEFAULT_LOCALE));
         this.langFile = this.plugin.getDataPath().resolve(String.format("lang/%s.lang", locale));
         this.saveDefault();
         this.checkAndUpdateOutdatedLocaleFile();
         this.load();
         this.validateLocaleFile();
+    }
+
+    /** 空配置使用中文，但显式选择的其他语言不能被默认值覆盖。 */
+    static String resolveLocale(String locale) {
+        return locale == null || locale.trim().isEmpty() ? DEFAULT_LOCALE : locale.trim();
     }
 
     private void saveDefault() {
@@ -68,13 +77,15 @@ public class FileLanguage {
         try {
             this.plugin.saveResource(path, true);
         } catch (Exception ex) {
-            Log.w("Failed to load {0}: {1}; using en.lang", this.langFile.getFileName(), ex.toString());
+            Log.w("无法载入语言文件 {0}：{1}；改用中文默认内容。", this.langFile.getFileName(), ex.toString());
 
-            try (InputStream is = this.plugin.getResource("lang/en.lang")) {
+            try (InputStream is = this.plugin.getResource("lang/" + DEFAULT_LOCALE + ".lang")) {
                 Objects.requireNonNull(is);
+                // 首次配置了不存在的语言时，saveResource 可能尚未创建 lang 目录。
+                Files.createDirectories(this.langFile.getParent());
                 Files.copy(is, Paths.get(this.langFile.toUri()), StandardCopyOption.REPLACE_EXISTING);
             } catch (IOException | NullPointerException e) {
-                Log.s("Failed to write default locale to {0}: {1}; continue without localization.",
+                Log.s("无法将默认语言写入 {0}：{1}；将继续尝试使用内置消息。",
                         this.langFile.getFileName(), e.toString());
             }
         }
@@ -85,28 +96,29 @@ public class FileLanguage {
              InputStreamReader isr = new InputStreamReader(is, StandardCharsets.UTF_8)) {
             this.language.load(isr);
         } catch (IOException e) {
-            Log.s("Failed to load locale file: {0}; continue without localization.", e.toString());
+            Log.s("无法读取语言文件：{0}；将继续尝试使用内置消息。", e.toString());
         }
     }
 
-    //Oh crap.
+    // 兼容旧版 printf 参数语法；格式版本行必须保留，防止重复改写已有 MessageFormat 占位符。
     private void checkAndUpdateOutdatedLocaleFile() {
         final Path path = this.langFile;
         List<String> lines;
         try {
             lines = Files.readAllLines(path, StandardCharsets.UTF_8);
         } catch (IOException e) {
-            Log.w(e, "Failed to read locale file");
+            Log.w(e, "无法读取语言文件");
             return;
         }
 
-        if (lines.get(0).startsWith("#version")) {
+        // 空文件也应正常回退到内置中文，而不是在读取首行时中断插件启用。
+        if (!lines.isEmpty() && lines.get(0).startsWith("#version")) {
             return;
         }
 
         final Pattern pattern = Pattern.compile("%(s|d|.2f)");
         final LinkedList<String> newLines = new LinkedList<>();
-        newLines.add("#version: 2.0 | Do not remove this line!");
+        newLines.add("#version: 2.0 | 请勿删除此行，插件据此识别语言文件格式。");
 
         for (int i1 = 0; i1 < lines.size(); i1++) {
             String line = lines.get(i1);
@@ -133,18 +145,18 @@ public class FileLanguage {
                     StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING
             );
         } catch (IOException e) {
-            Log.w("Failed to save locale file: {0}", e.toString());
+            Log.w("无法保存语言文件：{0}", e.toString());
         }
     }
 
     private void validateLocaleFile() {
         Properties properties = new Properties();
-        InputStream defaultLocale = this.plugin.getResource("lang/en.lang");
+        InputStream defaultLocale = this.plugin.getResource("lang/" + DEFAULT_LOCALE + ".lang");
         try (InputStreamReader isr = new InputStreamReader(Objects.requireNonNull(defaultLocale), StandardCharsets.UTF_8)) {
             properties.load(isr);
         } catch (IOException | NullPointerException e) {
-            Log.w(e, "Failed to read inbuilt locale file");
-            //Just ignore. We can't help with that shit.
+            Log.w(e, "无法读取内置中文语言文件");
+            // 内置资源不可用时保留已经载入的自定义消息，不覆盖现有翻译。
             return;
         }
 
@@ -159,33 +171,38 @@ public class FileLanguage {
         }
     }
 
+    /** 兼容旧插件调用；新集成应使用 getMessage。 */
     @NotNull
     @Deprecated
     public String getCaption(String name, Object... args) {
         return this.getMessage(name, args);
     }
 
+    /** 获取消息并保留颜色代码；缺失键会显示键名，便于修正配置。 */
     @NotNull
     public String getMessage(String key) {
         return this.getMessage(key, false);
     }
 
+    /** 纯文本输出可移除颜色，消息内容与参数规则保持一致。 */
     @NotNull
     public String getMessage(String key, boolean stripColor) {
         return this.getMessage(key, stripColor, (Object[]) null);
     }
 
+    /** 使用 MessageFormat 参数替换，语言文件中的 {0} 等参数编号必须保持兼容。 */
     @NotNull
     public String getMessage(String key, Object... args) {
         return this.getMessage(key, false, args);
     }
 
+    /** 缓存格式模板以避免频繁解析；只处理显示文本，不改变传入参数。 */
     @NotNull
     public String getMessage(String key, boolean stripColor, Object... args) {
         if (!this.messageCache.containsKey(key)) {
             this.messageCache.put(key, new MessageFormat(
                     ChatColor.translateAlternateColorCodes(
-                            '&', this.language.getProperty(key, "Unknown localization key: \"" + key + "\"")
+                            '&', this.language.getProperty(key, "未知语言键：\"" + key + "\"")
                     )
             ));
         }

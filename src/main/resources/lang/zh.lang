@@ -1,58 +1,59 @@
-#version: 2.0 | Do not remove this line!
-title: &b装备菜单
+#version: 2.0 | 请勿删除此行，插件据此识别语言文件格式。
+# {0}、{1} 等为消息参数；& 后的字符为颜色代码，请保留其格式。
+title: &b装备背包
 
-locked.name: &c未解锁凹槽
-locked.lore: &6你必须先解锁上一个凹槽
+locked.name: &c未解锁槽位
+locked.lore: &6&o请先解锁前面的槽位
+buyable.name: &a可购买槽位
+buyable.lore: &6&o购买此槽位需要：
+buyable.money: &6&o• 拥有 {0} 金币
+buyable.level: &6&o• 达到 {0} 级
 
-buyable.name: &a可用槽
-buyable.lore: &6要解锁一个凹槽，你必须:
-buyable.money: &6拥有 {0} 金币
-buyable.level: &6拥有 {0} 级
+error.fall: &c飞行或下落时无法执行此操作
+error.money: &6购买槽位还差 {0} 金币
+error.level: &6购买槽位需要达到 {0} 级
+error.buyable: &6购买此槽位需要 {0} 金币，请在 10 秒内再次点击确认购买。
+error.previous: &6请先解锁前面的槽位
+error.rp.denied: &c请允许下载服务器资源包后再进入游戏。
+error.player.loading: &e装备数据正在加载，请稍后再试。
+error.item.level: &6需要达到 &c{0} &6级
+error.item.class: &6需要职业：&c{0}
+error.mount.owner: &6此坐骑属于 {0}
+error.creative: &4创造模式下无法使用装备背包，请切换至生存模式。
 
-error.fall: &c你无法在飞行中做这个.
-error.money: &6你只有 {0} 金币.
-error.level: &6你只有 {0} 级.
-error.buyable: &6解锁此凹槽需要 {0} 金币. 10秒内再次点击凹槽确认解锁.
-error.previous: &6你必须先解锁上一个凹槽
-error.rp.denied: &c你必须启用服务器材质包才可进行游戏!
-error.item.level: &6需要 &c{0} &6级.
-error.item.class: &6你的种族必须为 &c{0}
-error.mount.owner: &6坐骑的主人为 {0}
-error.creative: &4RPGInventory can''t be used in CREATIVE game mode. Please switch to SURVIVAL.
-
-message.buyed: &a你成功解锁了一个凹槽!
-message.perms: &cYou don''t have permission to use this command
+message.buyed: &a槽位购买成功
+message.perms: &c你没有使用此命令的权限
 
 pet.name: {0} &f[{1}]
-pet.health: &c血量: &7{0}
-pet.damage: &c伤害: &7{0}
-pet.speed: &c移速: &7{0} block/s
-pet.revival.yes: &b冷却时间: &7{0}s
-pet.revival.no: &b不返回
-pet.cooldown:  &a&o({0}s)
-pet.food.value: &a恢复: {0} HP
-pet.role.companion: 同伴
+pet.health: &c生命值：&7{0}
+pet.damage: &c伤害：&7{0}
+pet.speed: &c移动速度：&7{0} 格/秒
+pet.revival.yes: &b复活冷却：&7{0} 秒
+pet.revival.no: &b无法复活
+pet.cooldown: &a&o（{0} 秒）
+pet.food.value: &a恢复 {0} 点生命值
+pet.role.companion: 战斗伙伴
 pet.role.mount: 坐骑
-mypet.egg: MyPet Egg: {0}
+mypet.egg: MyPet 宠物蛋：{0}
 
-item.level: &f需要 {0} 级
-item.class: &f职业限制: &b{0}
-item.nodrop: &7死亡无法掉落
-item.left-click: &a左键点击 - {0}
-item.right-click: &a右键点击 - {0}
-item.hide: &7物品杂项说明已隐藏
-item.unbreakable: &7无法破坏
+item.level: &f需要达到 {0} 级
+item.class: &f限定职业：&b{0}
+item.nodrop: &7死亡时不会掉落
+item.left-click: &a左键 - {0}
+item.right-click: &a右键 - {0}
+item.hide: &7&o物品属性已隐藏
+item.unbreakable: &7物品不会损坏
 
-stat.message.no_bonus: 0
-stat.damage: &c附加伤害: &7{0}
-stat.bow_damage: &c附加伤害 (弓箭): &7{0}
-stat.hand_damage: &c附加伤害 (空手): &7{0}
-stat.armor: &3护甲: &7{0}
-stat.crit_chance: &6暴击率: &7{0}
-stat.crit_damage: &6暴击伤害: &7{0}
-stat.speed: &9移速: &7{0}
-stat.jump: &9跳跃: &7{0}
+stat.message.no_bonus: 无加成
+stat.damage: &c伤害：&7{0}
+stat.bow_damage: &c远程伤害：&7{0}
+stat.hand_damage: &c空手伤害：&7{0}
+stat.armor: &3护甲：&7{0}
+stat.crit_chance: &6暴击率：&7{0}
+stat.crit_damage: &6暴击伤害：&7{0}
+stat.speed: &9移动速度：&7{0}
+stat.jump: &9跳跃加成：&7{0}
 
-backpack.desc: &8请将背包放入背包凹槽,并右键点击打开
-backpack.size: &a容量: &7{0}
-backpack.limit: &cYou can''t have more than {0} backpack!
+backpack.desc: &8&o放入背包槽位后，&f右键&8&o打开
+backpack.size: &a容量：&7{0}
+backpack.limit: &c最多只能携带 {0} 个背包！

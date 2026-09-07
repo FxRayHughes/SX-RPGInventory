@@ -2,7 +2,7 @@
 
 基于 [EndlessCodeGroup/RPGInventory](https://github.com/EndlessCodeGroup/RPGInventory) 的现代化分支，为 SX-Attribute、SX-Item 提供 RPG 装备槽和便携背包，兼容目标覆盖 Paper 1.12.2、1.16.5、1.20.6、1.21.11、26.2、Spigot 26.1.2 和 Leaf 26.2。
 
-当前源码已加入 MySQL 和默认中文配置，两套 API 构建各通过 87 项测试，无失败或跳过。当前产物及新增实测见 [MySQL 与中文更新](docs/MYSQL-CHINESE.md)；此前三后端、原生槽和 PacketEvents 的基线实测保留在 [服务器矩阵](docs/SERVER-MATRIX.md)，不同产物的证据分开记录。
+当前版本支持 MySQL 和默认中文配置，Redis 仅作为 SQL 的可选缓存。两套 API 构建各通过 100 项测试，无失败或跳过。当前产物及实测见 [Redis 缓存更新](docs/REDIS-CACHE.md)；此前 [MySQL 与中文更新](docs/MYSQL-CHINESE.md)、[服务器矩阵](docs/SERVER-MATRIX.md) 保留为历史证据，不同产物的结果分开记录。
 
 ## 环境与依赖
 
@@ -69,9 +69,9 @@ $env:JAVA_TOOL_OPTIONS = "-Djdk.net.unixdomain.tmpdir=$socketPath"
 
 ## 存储和 SX 联动
 
-默认 SQLite，也可选择 PostgreSQL、MySQL 8.x 或 Redis。玩家装备和背包共用所选后端，使用异步队列、条件写入、所有权租约和恢复日志。MySQL 使用 InnoDB、LONGBLOB 和二进制身份列，取得行锁后再读取数据库时钟，避免锁等待使过期租约被错误接受。物品根据服务端能力使用 Paper 原生完整字节、现代 Spigot 的组件 NBT 或旧 CraftBukkit 的完整 NBT 格式；保留槽位空洞和自定义数据。部署、旧数据迁移及故障恢复见 [存储操作说明](docs/STORAGE.md)。
+默认 SQLite，也可选择 PostgreSQL 或 MySQL 8.x 作为唯一权威存储。Redis 只提供可选缓存，默认关闭；缓存过期、清空或连接故障均回到数据库，数据库故障或租约冲突不能通过缓存绕过。玩家装备和背包共用所选数据库，使用异步队列、条件写入、所有权租约和恢复日志。MySQL 使用 InnoDB、LONGBLOB 和二进制身份列，取得行锁后再读取数据库时钟，避免锁等待使过期租约被错误接受。物品根据服务端能力使用 Paper 原生完整字节、现代 Spigot 的组件 NBT 或旧 CraftBukkit 的完整 NBT 格式；保留槽位空洞和自定义数据。部署、旧数据迁移及故障恢复见 [存储操作说明](docs/STORAGE.md)。
 
-装备加载、点击和拖拽后刷新 SX-Attribute 已有的 RPG 数据源。物品匹配规则和纹理模板支持 `sxitem:<物品ID>`，通过 SX-Item 管理器识别、取得和更新物品。七服实际穿脱、原生槽同步、属性增减/去重、踢出重连与 SQLite / PostgreSQL / Redis 三后端重启恢复已通过；新增 MySQL 后端须单独完成本轮验收，具体验收条件见服务器矩阵。
+装备加载、点击和拖拽后刷新 SX-Attribute 已有的 RPG 数据源。物品匹配规则和纹理模板支持 `sxitem:<物品ID>`，通过 SX-Item 管理器识别、取得和更新物品。七服实际穿脱、原生槽同步、属性增减/去重、踢出重连与 SQLite / PostgreSQL 重启恢复已有实机基线；MySQL 与 Redis 可选缓存的本轮结果单独记录，Redis 不再作为存储后端。旧 `storage.backend: REDIS` 会拒绝启动，必须先停服备份并迁移到数据库，不能仅修改配置指向空库。具体验收条件见服务器矩阵。
 
 已采纳的上游建议、历史缺陷判断及 API 使用方式见 [上游 issue 处理记录](docs/UPSTREAM-ISSUES.md)。
 

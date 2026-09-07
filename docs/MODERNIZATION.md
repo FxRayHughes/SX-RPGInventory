@@ -2,7 +2,7 @@
 
 来源：EndlessCodeGroup/RPGInventory 的 develop 分支。当前分支：`codex/sx-rpginventory-modern`。上游建议的逐项判断见 [UPSTREAM-ISSUES.md](UPSTREAM-ISSUES.md)。
 
-后续 MySQL 与中文更新已完成两套 API 各 87 项测试，新增结果见 [MYSQL-CHINESE.md](MYSQL-CHINESE.md)。本页下方的 73 项测试、2265 个普通类及三后端数据是首版基线，保留用于追溯；当前包包含 MySQL 驱动，共 4079 个普通类，均不高于 Java 8。
+MySQL 与中文更新的历史结果见 [MYSQL-CHINESE.md](MYSQL-CHINESE.md)。当前 Redis 已改为 SQL 的可选缓存，最新产物和验证见 [REDIS-CACHE.md](REDIS-CACHE.md)。本页下方的 73 项测试、2265 个普通类及三后端数据是首版基线，保留用于追溯；其中 Redis 持久化实现现已移除。
 
 ## 实现范围
 
@@ -10,7 +10,7 @@
 - SX-RPGInventory 插件标识，保留原公共 Java 包、权限和 RPGInventory 别名；隔离 Mimic、MyPet、PlaceholderAPI 及数据包库的可选类加载。
 - SX-Item 模板、身份和更新桥；SX-Attribute 延迟合并刷新，先从玩家原生背包同步护甲、快捷栏和副手镜像，再更新属性。提供提交后的不可取消装备变化事件。
 - 1.20.5+ 优先 PacketEvents，旧版优先 ProtocolLib；不可变主线程快照用于合成槽覆盖和自动配方保护，重载和停用释放监听器。
-- SQLite、PostgreSQL、MySQL、Redis 玩家及背包持久化，异步生命周期、所有权租约、CAS、恢复日志和停服排空；完整原生物品编码与旧 gzip YAML 按需迁移。
+- SQLite、PostgreSQL、MySQL 玩家及背包持久化，Redis 仅提供可选且可丢弃的快照缓存；SQL 负责所有权租约与 CAS，保存提交后才回填缓存。保留异步生命周期、恢复日志、停服排空、完整原生物品编码与旧 gzip YAML 按需迁移。
 - 可选 ChestSort 集成，保护固定及保留槽，允许普通储物格排序；未知类型、容量缩减及序列化失败时保留最后可用数据并冻结交互。
 
 ## 实测发现并修复
@@ -37,4 +37,4 @@ Shadow 包的 2265 个普通类均不高于 Java 8，另有三个多版本类条
 
 实服矩阵只覆盖记录中的七种具体服务端构建及操作；不等于所有历史补丁、第三方插件组合或生产负载均已通过。ChestSort 已做 API 事件协议测试，未安装真实插件实测；MMOItems 镶嵌、MyPet、旧资源包纹理、真实旧存档迁移、跨世界/死亡全流程及故障注入不是本次完整验收范围。
 
-多版本运行兼容不代表旧服可读取新版本组件物品；跨后端迁移没有自动工具，古老二进制 NBT 需要旧服预转换。存储事务不覆盖原版玩家背包、经济或其他插件，恢复日志不自动重放，Redis 磁盘持久性取决于服务端配置。未声明 Folia 支持。操作约束见 [STORAGE.md](STORAGE.md)。
+多版本运行兼容不代表旧服可读取新版本组件物品；跨后端迁移没有自动工具，古老二进制 NBT 需要旧服预转换。存储事务不覆盖原版玩家背包、经济或其他插件，恢复日志不自动重放。Redis 缓存无须持久化，数据库仍需独立备份；旧 Redis 持久化数据须停服迁移，不能直接切换空库。未声明 Folia 支持。操作约束见 [STORAGE.md](STORAGE.md)。

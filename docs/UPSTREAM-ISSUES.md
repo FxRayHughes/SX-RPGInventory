@@ -13,7 +13,7 @@
 | [#180](https://github.com/EndlessCodeGroup/RPGInventory/issues/180) | 上游已修复多位数字范围。继续修复本分支 `sxitem:<ID>` 在 SlotManager 注册校验阶段被拒绝的问题；允许非空 SX ID，保留 ID 内命名空间冒号。 | 22 组规则参数化用例，包括多位范围、中文/命名空间 ID、空白/未知前缀。 |
 | [#176](https://github.com/EndlessCodeGroup/RPGInventory/issues/176)、[#172](https://github.com/EndlessCodeGroup/RPGInventory/issues/172)、[#168](https://github.com/EndlessCodeGroup/RPGInventory/issues/168) | 上游已用取消 F 操作后重新发送副手修复客户端假复制。保留该修复，并将 `SWAP_OFFHAND` 改为名称比较，消除 1.12 每次点击触发的缺失枚举常量错误。 | 1.12 玩家点击与跨版本槽位操作回归。 |
 | [#152](https://github.com/EndlessCodeGroup/RPGInventory/issues/152) | 当前 quit 路径会先关闭背包、同步取得最终内容，再排队保存并释放租约；未找到尚存的 kick 特有漏存根因。补充放物后立即 kick 的真实时序回归。 | 一次性测试玩家、提交后下一 tick kick、同背包 UUID 重连对账。 |
-| [#10](https://github.com/EndlessCodeGroup/RPGInventory/issues/10) | 采纳数据库存储需求，提供 SQLite、PostgreSQL、Redis，并按后续要求新增独立 MySQL 8.x 支持，使用 InnoDB、完整二进制物品和锁后读取的数据库时间。 | 首版三后端基线及新增 MySQL 真实仓储/玩家测试分开记录，见 [MySQL 更新](MYSQL-CHINESE.md)。 |
+| [#10](https://github.com/EndlessCodeGroup/RPGInventory/issues/10) | 采纳数据库存储需求，提供 SQLite、PostgreSQL、MySQL 8.x 权威数据库，Redis 纠正为默认关闭的可选缓存，使用 InnoDB、完整二进制物品和锁后读取的数据库时间。 | 数据库与可选 Redis 缓存的真实仓储/玩家测试分开记录；旧 REDIS 后端必须显式迁移，见 [缓存更新](REDIS-CACHE.md)。 |
 
 ## 保留与未采纳的范围
 

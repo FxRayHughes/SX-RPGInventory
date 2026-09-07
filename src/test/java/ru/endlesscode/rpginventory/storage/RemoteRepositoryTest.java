@@ -3,26 +3,17 @@ package ru.endlesscode.rpginventory.storage;
 import org.junit.Assume;
 import org.junit.Test;
 
-import java.net.URI;
 import java.util.UUID;
 
 import static org.junit.Assert.*;
 
-/** Opt-in tests run the same ownership contract against real PostgreSQL/Redis services, not in-memory substitutes. */
+/** Opt-in tests run the same ownership contract against real PostgreSQL services, not in-memory substitutes. */
 public class RemoteRepositoryTest {
     @Test public void postgresqlOwnershipContract() {
         String url = System.getenv("SX_RPG_TEST_POSTGRES_URL");
         Assume.assumeTrue("PostgreSQL integration environment not configured", url != null);
         try (var repository = new JdbcInventoryRepository(url, System.getenv("SX_RPG_TEST_POSTGRES_USER"),
                 System.getenv("SX_RPG_TEST_POSTGRES_PASSWORD"), "test_" + UUID.randomUUID().toString().replace("-", ""), 2)) {
-            verify(repository);
-        }
-    }
-
-    @Test public void redisOwnershipContract() {
-        String uri = System.getenv("SX_RPG_TEST_REDIS_URI");
-        Assume.assumeTrue("Redis integration environment not configured", uri != null);
-        try (var repository = new RedisInventoryRepository(URI.create(uri), "test_" + UUID.randomUUID().toString().replace("-", ""))) {
             verify(repository);
         }
     }

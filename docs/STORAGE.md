@@ -2,7 +2,7 @@
 
 ## 后端选择
 
-`storage.backend` 接受 `SQLITE`、`POSTGRESQL`、`MYSQL`、`REDIS`。共享装备的服务器使用相同后端、数据库和 namespace；无关服务器必须隔离 namespace。名称允许 1–64 个字母、数字、下划线或连字符，区分大小写。存储配置仅在插件启动时读取，修改后完整重启。
+`storage.backend` 接受 `SQLITE`、`POSTGRESQL`、`MYSQL`。共享装备的服务器使用相同后端、数据库和 namespace；无关服务器必须隔离 namespace。名称允许 1–64 个字母、数字、下划线或连字符，区分大小写。存储配置仅在插件启动时读取，修改后完整重启。
 
 共享数据的节点还必须使用能相互读取物品格式的 Minecraft 版本。多版本兼容指同一个插件可在这些服务端运行，不代表 1.12 可以读取 26.x 的组件物品；混合世代的服务端应配置不同 namespace。原生数据修复只负责受支持的向新版本升级，不会将新物品静默降级。
 
@@ -44,24 +44,35 @@ Connector/J 8.4.0 随插件打包并兼容 Java 8。表固定使用 InnoDB 和 L
 
 MySQL 的 `NOW()` / `CURRENT_TIMESTAMP` 固定在当前语句开始时，可能早于行锁等待结束。本实现先在事务内锁定记录，再用独立语句读取数据库毫秒时间，然后持锁执行 CAS 和租约判断。等待期间到期的保存/续租会被拒绝，过期后的新所有者可以接管。上线前应确认 InnoDB 持久化设置（例如 `innodb_flush_log_at_trx_commit=1`）、备份策略及 `max_allowed_packet` 能容纳最大的物品快照；LONGBLOB 的容量不意味着传输包限制会自动调整。
 
-Redis 是独立主存储，当前不作为其他后端的缓存：
+## Redis 可选缓存
+
+Redis 只缓存 SQL 数据库已经提交的物品快照，默认关闭。数据库保存 payload、revision 和所有权租约；Redis 不保存权威装备，也不能在数据库不可用时继续接受存取。
 
 ```yaml
 storage:
-  backend: REDIS
+  backend: MYSQL # 也可以选择 SQLITE 或 POSTGRESQL
   namespace: survival
-  lease-seconds: 60
   redis:
+    enabled: true
+    uri: redis://localhost:6379/0
     uri-env: SX_RPG_REDIS_URI
+    ttl-seconds: 300
+    timeout-millis: 200
 ```
 
-变量为 `redis://...` 或 TLS 的 `rediss://...` URI。必须启用 AOF 和 `maxmemory-policy noeviction`；要求每次写入落盘时配置 `appendfsync always`，`everysec` 仍存在故障丢失窗口。命令成功不等于复制节点或磁盘已持久化。维护 AOF/备份及恢复演练，不对存储键设置 TTL 或执行缓存清理。
+`uri-env` 指定时必须存在并覆盖 `uri`，支持 `redis://` 或 TLS 的 `rediss://`。TTL 单位为秒，默认 300、最大 86400；连接与命令超时单位为毫秒，默认 200、最大 1000。配置错误应在启动时修正；运行中的 Redis 拒连、超时或损坏缓存则按缓存未命中处理，短暂熔断后自动重试，无须切换数据库。
+
+每次加载先在数据库取得租约和当前 revision，再按数据库连接地址与账号构成的身份、namespace、记录键与 revision 查缓存。命中只省去读取 SQL payload，不能省略数据库所有权校验；未命中读取数据库并回填。保存以 SQL 提交成功为准，提交后才写缓存。旧版本晚到只影响自己的版本键，不能替换新 revision 的缓存。数据库失败、CAS 冲突或租约失效必须原样失败，不能返回缓存假装成功。
+
+缓存使用独立 `sx-rpginventory:cache:v1:` 前缀和 TTL，可丢弃、过期或清理；不要求将 Redis 配成主存储的 AOF/noeviction 模式。清理只限此缓存前缀，禁止误删其他应用或旧版持久化数据。数据库仍需独立备份与恢复演练。切换数据库时缓存按连接地址和账号隔离，避免不同 PostgreSQL 账号默认 schema 不同却共享缓存；恢复数据库备份、回滚 revision、手工改表或更换 schema 前，停服并清理对应 `sx-rpginventory:cache:v1:<数据库身份摘要>:<namespace>:` 缓存（或改用独立 namespace），防止版本号与旧快照重复。只清理新缓存前缀，不能删除旧 Redis 持久化键。
+
+旧版 `storage.backend: REDIS` 明确拒绝启动，不会自动改为 SQLite 或连接空库。先停服并备份旧 Redis 全量数据、配置与恢复日志，再将旧 namespace 的记录键、payload、revision 搬迁到选定 SQL 数据库并逐项核验。当前没有自动迁移命令；不要直接改 backend 后登录，也不要将旧 `sx-rpginventory:<namespace>:` 持久化键当作新缓存删除。
 
 ## 所有权和保存
 
 每次加载取得独立 owner token，默认租约 60 秒，每四分之一周期续租和保存快照，最小租约为 15 秒。尚未加载或租约失效时冻结交互。CAS 写入检查 owner、revision 和租约，防止旧服务器覆盖新所有者。
 
-正常队列上限为 1024。物品在主线程序列化，数据库和日志 I/O 在后台处理。退出排队保存并释放所有权；停服分别等待正常队列、恢复队列各最多 60 秒。超时不能视为保存成功，应检查日志。存储失败不会自动切换后端。
+正常队列上限为 1024。物品在主线程序列化，数据库和日志 I/O 在后台处理。退出排队保存并释放所有权；停服分别等待正常队列、恢复队列各最多 60 秒。超时不能视为保存成功，应检查日志。数据库存储失败不会自动切换后端；只有可选 Redis 缓存故障会回到原来的权威数据库。
 
 这些事务仅覆盖 RPG 装备和插件背包，不覆盖原版玩家背包、经济扣款或其他插件的跨服数据。
 
@@ -87,8 +98,10 @@ storage:
 
 ## 集成测试
 
-`RemoteRepositoryTest` 使用 `SX_RPG_TEST_POSTGRES_URL`、`SX_RPG_TEST_POSTGRES_USER`、`SX_RPG_TEST_POSTGRES_PASSWORD` 和 `SX_RPG_TEST_REDIS_URI`。`MysqlInventoryRepositoryTest` 使用 `SX_RPG_TEST_MYSQL_URL`、`SX_RPG_TEST_MYSQL_USER`、`SX_RPG_TEST_MYSQL_PASSWORD`。
+`RemoteRepositoryTest` 使用 `SX_RPG_TEST_POSTGRES_URL`、`SX_RPG_TEST_POSTGRES_USER`、`SX_RPG_TEST_POSTGRES_PASSWORD`。`RedisPayloadCacheTest` 使用 `SX_RPG_TEST_REDIS_URI`，以真实 Redis 和临时 SQLite 验证数据库权威性与缓存故障恢复，并对配置的 PostgreSQL/MySQL 执行缓存启用契约。`JdbcPayloadCacheTest` 另用独立 SQL 连接确认缓存发布发生在数据库提交之后。`MysqlInventoryRepositoryTest` 使用 `SX_RPG_TEST_MYSQL_URL`、`SX_RPG_TEST_MYSQL_USER`、`SX_RPG_TEST_MYSQL_PASSWORD`。
 
 MySQL 测试实际覆盖大于普通 BLOB 上限的二进制往返、连接池重开、namespace/owner 大小写及尾空格、并发 CAS 和 acquire/save/renew 的锁等待过期窗口。锁等待测试通过 `performance_schema.data_lock_waits` 与 `performance_schema.threads` 确认目标操作已经阻塞，因此测试账号除测试库权限外还需 `SELECT ON performance_schema.*`；正常插件账号不需要这项诊断权限。工作流仅给可丢弃的测试容器授予此权限。
+
+缓存测试覆盖命中、过期、删除、坏格式、数据库新版本与迟到旧版本、Redis 拒连/恢复、禁用缓存、数据库故障和租约冲突。测试用本地 TCP 转发模拟 Redis 断连，不停止共享 Redis 服务；只清理自己的随机 namespace 缓存键。测试执行结果以本轮报告为准。
 
 务必使用可丢弃的独立测试数据库；随机 namespace 可能留下测试数据。缺少变量的测试会跳过，跳过不代表通过。新增 MySQL 测试在执行成功前不能视为已经验收。

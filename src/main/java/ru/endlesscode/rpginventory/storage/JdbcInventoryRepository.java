@@ -17,6 +17,7 @@ import java.util.Objects;
  */
 public final class JdbcInventoryRepository implements InventoryRepository {
     private final HikariDataSource pool;
+    private final InventoryPayloadCache cache;
     private final String namespace;
     private final boolean sqlite;
     private final boolean mysql;
@@ -25,6 +26,13 @@ public final class JdbcInventoryRepository implements InventoryRepository {
 
     /** Create schema once; SQLite uses one WAL writer with a busy timeout rather than competing writers. */
     public JdbcInventoryRepository(String url, String username, String password, String namespace, int poolSize) {
+        this(url, username, password, namespace, poolSize, null);
+    }
+
+    /** 可选缓存只加速快照读取，SQL 始终负责租约、版本及持久化；旧构造器保持默认无缓存。 */
+    public JdbcInventoryRepository(String url, String username, String password, String namespace, int poolSize,
+                                   InventoryPayloadCache cache) {
+        this.cache = cache;
         this.sqlite = url.startsWith("jdbc:sqlite:");
         this.mysql = url.startsWith("jdbc:mysql:");
         if (!sqlite && !mysql && !url.startsWith("jdbc:postgresql:")) {
@@ -90,16 +98,10 @@ public final class JdbcInventoryRepository implements InventoryRepository {
                     setOwner(update, 5, owner);
                     if (update.executeUpdate() != 1) throw new StorageConflictException(key);
                 }
-                StoredRecord record;
-                try (PreparedStatement select = connection.prepareStatement("SELECT payload, revision FROM " + TABLE
-                        + " WHERE namespace=? AND record_key=?")) {
-                    identify(select, key, 1);
-                    try (ResultSet result = select.executeQuery()) {
-                        if (!result.next()) throw new StorageException("Claimed record disappeared: " + key.value());
-                        record = new StoredRecord(result.getBytes(1), result.getLong(2));
-                    }
-                }
+                StoredRecord record = readClaimedRecord(connection, key);
                 connection.commit();
+                // 只有 SQL 成功提交的版本才能进入缓存；失败的缓存发布不改变已取得的租约结果。
+                if (cache != null) cachePut(key, record.revision(), record.payload());
                 return record;
             } catch (SQLException | RuntimeException failure) {
                 rollback(connection, failure);
@@ -114,8 +116,9 @@ public final class JdbcInventoryRepository implements InventoryRepository {
     public long save(StorageKey key, String owner, long revision, byte[] payload, long leaseMillis, boolean release) {
         validateLease(owner, leaseMillis);
         Objects.requireNonNull(payload, "payload");
+        long savedRevision;
         try (Connection connection = pool.getConnection()) {
-            return conditionalWrite(connection, key, now -> {
+            savedRevision = conditionalWrite(connection, key, now -> {
                 try (PreparedStatement update = connection.prepareStatement("UPDATE " + TABLE
                         + " SET payload=?, revision=revision+1, owner=?, lease_until=CASE WHEN ?=1 THEN 0 ELSE " + now + "+? END, updated_at=" + now
                         + " WHERE namespace=? AND record_key=? AND owner=? AND revision=? AND lease_until>" + now)) {
@@ -133,6 +136,9 @@ public final class JdbcInventoryRepository implements InventoryRepository {
         } catch (SQLException e) {
             throw new StorageException("Cannot save " + key.value(), e);
         }
+        // SQL 提交成功以后才发布新版本；迟到的旧版本缓存写入也只能写自己的版本键。
+        cachePut(key, savedRevision, payload);
+        return savedRevision;
     }
 
     @Override
@@ -178,7 +184,65 @@ public final class JdbcInventoryRepository implements InventoryRepository {
     }
 
     @Override
-    public void close() { pool.close(); }
+    public void close() {
+        try { pool.close(); }
+        finally {
+            if (cache != null) {
+                try { cache.close(); } catch (RuntimeException ignored) { /* 缓存关闭不改变 SQL 已提交的数据。 */ }
+            }
+        }
+    }
+
+    /** 持有 SQL 租约后读取版本；关闭缓存时仍只执行原有的一次完整快照查询。 */
+    private StoredRecord readClaimedRecord(Connection connection, StorageKey key) throws SQLException {
+        if (cache == null) {
+            try (PreparedStatement select = connection.prepareStatement("SELECT payload, revision FROM " + TABLE
+                    + " WHERE namespace=? AND record_key=?")) {
+                identify(select, key, 1);
+                try (ResultSet result = select.executeQuery()) {
+                    if (!result.next()) throw new StorageException("Claimed record disappeared: " + key.value());
+                    return new StoredRecord(result.getBytes(1), result.getLong(2));
+                }
+            }
+        }
+        long revision;
+        boolean hasPayload;
+        // 这里只传输版本和存在标记；命中缓存不会从 SQL 取回大块物品数据。
+        try (PreparedStatement select = connection.prepareStatement("SELECT revision, payload IS NOT NULL FROM " + TABLE
+                + " WHERE namespace=? AND record_key=?")) {
+            identify(select, key, 1);
+            try (ResultSet result = select.executeQuery()) {
+                if (!result.next()) throw new StorageException("Claimed record disappeared: " + key.value());
+                revision = result.getLong(1);
+                hasPayload = result.getBoolean(2);
+            }
+        }
+        if (!hasPayload) return new StoredRecord(null, revision);
+        byte[] payload = null;
+        try { payload = cache.get(key, revision); }
+        catch (RuntimeException ignored) { /* 可选缓存故障必须回源 SQL，不能伪装成空背包。 */ }
+        if (payload == null) {
+            // 同一个事务持有记录锁，版本读取与回源期间不存在另一所有者插入新快照的窗口。
+            try (PreparedStatement select = connection.prepareStatement("SELECT payload FROM " + TABLE
+                    + " WHERE namespace=? AND record_key=?")) {
+                identify(select, key, 1);
+                try (ResultSet result = select.executeQuery()) {
+                    if (!result.next()) throw new StorageException("Claimed record disappeared: " + key.value());
+                    payload = result.getBytes(1);
+                    if (payload == null) throw new StorageException("Claimed payload disappeared: " + key.value());
+                }
+            }
+        }
+        return new StoredRecord(payload, revision);
+    }
+
+    /** 缓存不是提交事务的一部分，任何缓存运行异常都不能把成功持久化误报为失败。 */
+    private void cachePut(StorageKey key, long revision, byte[] payload) {
+        if (cache != null && payload != null) {
+            try { cache.put(key, revision, payload); }
+            catch (RuntimeException ignored) { /* 数据已在 SQL 中，后续读取会按同一版本重新填充缓存。 */ }
+        }
+    }
 
     /** SQLite/PG evaluate their existing write clocks; MySQL reads a separate statement only after the row lock. */
     private String clock() {

@@ -2,6 +2,8 @@
 
 本页保留首个已发布预发行版的历史基线（主包 `E5550B72…`）。后续 MySQL 与中文默认更新使用不同产物，新增构建和实测见 [MYSQL-CHINESE.md](MYSQL-CHINESE.md)，不将下列旧产物的测试当作新包重新运行的结果。
 
+下表 Redis 列属于现已移除的旧持久化后端，并非缓存测试。当前版本仅允许 SQL 作为权威存储；Redis 可选缓存的独立验证见 [REDIS-CACHE.md](REDIS-CACHE.md)。
+
 验收日期：2026-09-07。测试根目录：`E:/Minecraft-Server/incisionTest`。下表仅代表所列具体服务端构建及测试操作；Spigot 的第三方插件隔离条件见下文。
 
 ## 产物与构建

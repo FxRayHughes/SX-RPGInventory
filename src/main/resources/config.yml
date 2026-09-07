@@ -3,7 +3,7 @@ enabled: true # 是否启用插件功能。
 
 # 玩家装备与便携背包只使用一个权威存储后端；切换前先迁移数据并重启。
 storage:
-  backend: SQLITE # 可选 SQLITE、MYSQL、POSTGRESQL、REDIS，均直接保存数据而不是缓存。
+  backend: SQLITE # 可选 SQLITE、MYSQL、POSTGRESQL；数据库是唯一权威存储。旧 REDIS 后端须先迁移，不能直接切换。
   # 共享装备的服务器必须连接同一后端，并使用相同的命名空间。
   namespace: default
   # 可续期的独占租约，防止两台服务器同时修改同一份数据。
@@ -28,10 +28,15 @@ storage:
     password-env: ''
     pool-size: 4
   redis:
-    # 此模式将 Redis 作为持久化存储，服务端须启用 AOF 并设置 noeviction。
+    # Redis 仅缓存数据库已提交的物品快照；默认关闭，故障、过期或清空均回到数据库。
+    enabled: false
     uri: redis://localhost:6379/0
-    # 可填写保存 redis:// 或 rediss:// 连接地址的环境变量名。
+    # 可填写保存 redis:// 或 rediss:// 连接地址的环境变量名；明确指定但不存在时拒绝启动。
     uri-env: ''
+    # 缓存有效期为秒，最大 86400；不改变数据库记录和租约的生命周期。
+    ttl-seconds: 300
+    # Redis 连接与命令超时为毫秒，最大 1000；失败不阻止数据库正常存取。
+    timeout-millis: 200
 
 # 默认中文；值与 lang 目录中的文件名一致，不含 .lang。缺少的翻译项回退到中文。
 language: zh

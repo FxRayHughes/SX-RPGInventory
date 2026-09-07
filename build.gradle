@@ -65,6 +65,7 @@ dependencies {
     // Connector/J 8.4 兼容 Java 8；驱动按类名加载，必须保留在整合包的 JDBC 服务描述符中。
     implementation 'com.mysql:mysql-connector-j:8.4.0'
     implementation 'org.xerial:sqlite-jdbc:3.50.3.0'
+    // Redis 仅缓存 SQL 已提交的版本快照；驱动必须保留 Java 8 兼容性。
     implementation 'redis.clients:jedis:6.1.0'
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.mockito:mockito-core:5.18.0'

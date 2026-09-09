@@ -159,22 +159,9 @@ public final class ItemCompatibility {
     /** Whether the persisted format is the server's data-fixer-aware byte format. */
     public static boolean usesModernSerialization() { return modernSerializer() != null || usesComponentCodec(); }
 
-    /**
-     * Arclight 1.20.1 exposes Mojang's component/NBT classes but omits the old
-     * CraftBukkit NMS package (v1_20_R1). Select the component codec from the
-     * class actually provided by the server instead of relying on a patch-level
-     * version threshold, otherwise persistence falls into the missing legacy
-     * NBTTagCompound reflection path.
-     */
+    /** NBT classes existed before components; their presence cannot identify the 1.20.5 codec contract. */
     private static boolean usesComponentCodec() {
-        if (modernSerializer() != null) return false;
-        try {
-            Class.forName("net.minecraft.nbt.CompoundTag");
-            Class.forName("net.minecraft.world.item.ItemStack");
-            return true;
-        } catch (ClassNotFoundException unavailable) {
-            return false;
-        }
+        return VersionHandler.getVersionCode() >= 1_20_05;
     }
 
     private static Method modernSerializer() {
@@ -398,7 +385,7 @@ public final class ItemCompatibility {
         }
     }
 
-    /** Full compound codec for the pre-component versioned CraftBukkit implementations (1.12 through 1.16). */
+    /** Full item NBT predates components; 1.17 moved NMS classes without adopting the component codec. */
     private static final class LegacyNbt {
         private final Class<?> compound;
         private final Class<?> nmsItem;
@@ -406,18 +393,25 @@ public final class ItemCompatibility {
         private final Method writeCompressed;
         private final Method readCompressed;
         private final Method save;
+        private final Method putInt;
 
         LegacyNbt() throws ReflectiveOperationException {
             String craftPackage = Bukkit.getServer().getClass().getPackage().getName();
             String revision = craftPackage.substring(craftPackage.lastIndexOf('.') + 1);
             String nmsPackage = "net.minecraft.server." + revision + ".";
             craftItem = Class.forName(craftPackage + ".inventory.CraftItemStack");
-            compound = Class.forName(nmsPackage + "NBTTagCompound");
-            nmsItem = Class.forName(nmsPackage + "ItemStack");
-            Class<?> io = Class.forName(nmsPackage + "NBTCompressedStreamTools");
+            boolean repackaged = VersionHandler.getVersionCode() >= VersionHandler.VERSION_1_17;
+            // Hybrid servers expose Mojang class names and may remap reflective calls to SRG names.
+            // Keep the versioned package solely for pre-1.17 servers, including their literal tag API.
+            compound = repackaged ? nativeClass("net.minecraft.nbt.CompoundTag", "net.minecraft.nbt.NBTTagCompound")
+                    : Class.forName(nmsPackage + "NBTTagCompound");
+            nmsItem = Class.forName(repackaged ? "net.minecraft.world.item.ItemStack" : nmsPackage + "ItemStack");
+            Class<?> io = repackaged ? nativeClass("net.minecraft.nbt.NbtIo", "net.minecraft.nbt.NBTCompressedStreamTools")
+                    : Class.forName(nmsPackage + "NBTCompressedStreamTools");
             writeCompressed = staticMethod(io, void.class, compound, OutputStream.class);
             readCompressed = staticMethod(io, compound, InputStream.class);
-            save = nmsItem.getMethod("save", compound);
+            save = uniqueInstanceMethod(nmsItem, compound, compound);
+            putInt = uniqueInstanceMethod(compound, void.class, String.class, int.class);
         }
 
         private Object nativeItem(ItemStack item) throws ReflectiveOperationException {
@@ -435,7 +429,7 @@ public final class ItemCompatibility {
             int version = VersionHandler.getVersionCode() < VersionHandler.VERSION_1_13 ? 1343 : 2586;
             try { version = ((Number) Bukkit.getUnsafe().getClass().getMethod("getDataVersion").invoke(Bukkit.getUnsafe())).intValue(); }
             catch (NoSuchMethodException unavailable) { /* 1.12 predates UnsafeValues#getDataVersion. */ }
-            compound.getMethod("setInt", String.class, int.class).invoke(data, "DataVersion", version);
+            putInt.invoke(data, "DataVersion", version);
             ByteArrayOutputStream output = new ByteArrayOutputStream();
             writeCompressed.invoke(null, data, output);
             return output.toByteArray();
@@ -486,5 +480,30 @@ public final class ItemCompatibility {
             }
             throw new NoSuchMethodException(owner.getName() + " native codec method " + java.util.Arrays.toString(parameters));
         }
+    }
+
+    /** Spigot and Mojang use different names for the same post-1.17 NBT classes. */
+    private static Class<?> nativeClass(String mojang, String spigot) throws ClassNotFoundException {
+        try { return Class.forName(mojang); }
+        catch (ClassNotFoundException unavailable) { return Class.forName(spigot); }
+    }
+
+    /**
+     * Save and integer-tag writes have unique descriptors across Mojang, Spigot and SRG mappings.
+     * Reject ambiguous matches rather than invoking an unrelated method and persisting damaged data.
+     */
+    static Method uniqueInstanceMethod(Class<?> owner, Class<?> result, Class<?>... parameters)
+            throws NoSuchMethodException {
+        Method match = null;
+        for (Method method : owner.getMethods()) {
+            if (!Modifier.isStatic(method.getModifiers()) && !method.isBridge() && !method.isSynthetic()
+                    && method.getReturnType() == result
+                    && java.util.Arrays.equals(method.getParameterTypes(), parameters)) {
+                if (match != null) throw new NoSuchMethodException("Ambiguous native method on " + owner.getName());
+                match = method;
+            }
+        }
+        if (match == null) throw new NoSuchMethodException(owner.getName() + " native method " + java.util.Arrays.toString(parameters));
+        return match;
     }
 }

@@ -159,7 +159,23 @@ public final class ItemCompatibility {
     /** Whether the persisted format is the server's data-fixer-aware byte format. */
     public static boolean usesModernSerialization() { return modernSerializer() != null || usesComponentCodec(); }
 
-    private static boolean usesComponentCodec() { return VersionHandler.getVersionCode() >= 1_20_05; }
+    /**
+     * Arclight 1.20.1 exposes Mojang's component/NBT classes but omits the old
+     * CraftBukkit NMS package (v1_20_R1). Select the component codec from the
+     * class actually provided by the server instead of relying on a patch-level
+     * version threshold, otherwise persistence falls into the missing legacy
+     * NBTTagCompound reflection path.
+     */
+    private static boolean usesComponentCodec() {
+        if (modernSerializer() != null) return false;
+        try {
+            Class.forName("net.minecraft.nbt.CompoundTag");
+            Class.forName("net.minecraft.world.item.ItemStack");
+            return true;
+        } catch (ClassNotFoundException unavailable) {
+            return false;
+        }
+    }
 
     private static Method modernSerializer() {
         try { return ItemStack.class.getMethod("serializeAsBytes"); }

@@ -33,7 +33,8 @@ import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import ru.endlesscode.inspector.bukkit.scheduler.TrackedBukkitRunnable;
+// Use Bukkit scheduling directly; the old wrapper implements an obsolete Plugin interface.
+import org.bukkit.scheduler.BukkitRunnable;
 import ru.endlesscode.rpginventory.RPGInventory;
 import ru.endlesscode.rpginventory.event.updater.StatsUpdater;
 import ru.endlesscode.rpginventory.inventory.backpack.Backpack;
@@ -101,7 +102,7 @@ public class PlayerWrapper implements InventoryHolder {
     }
 
     public void openInventoryDeferred(boolean softOpen) {
-        new TrackedBukkitRunnable() {
+        new BukkitRunnable() {
             @Override
             public void run() {
                 openInventory(softOpen);
@@ -145,8 +146,9 @@ public class PlayerWrapper implements InventoryHolder {
         this.inventoryView = null;
     }
 
+    /** A new player's first durable snapshot precedes slot installation; no purchase entry means zero bought slots. */
     public int getBuyedGenericSlots() {
-        return this.buyedSlots.get("{generic}");
+        return this.buyedSlots.getOrDefault("{generic}", 0);
     }
 
     public void setBuyedSlots(int buyedSlots) {
@@ -203,7 +205,7 @@ public class PlayerWrapper implements InventoryHolder {
     private void clearStats() {
         Player player = this.player.getPlayer();
 
-        AttributeInstance speedAttribute = player.getAttribute(Attribute.GENERIC_MOVEMENT_SPEED);
+        AttributeInstance speedAttribute = player.getAttribute(ru.endlesscode.rpginventory.compat.ServerCompatibility.attribute("MOVEMENT_SPEED"));
         assert speedAttribute != null;
         AttributeModifier rpgInvModifier = null;
         for (AttributeModifier modifier : speedAttribute.getModifiers()) {
@@ -388,7 +390,8 @@ public class PlayerWrapper implements InventoryHolder {
         return this.pocketCraft;
     }
 
-    InventorySnapshot createSnapshot() {
+    /** Capture on the server thread before handing immutable bytes to asynchronous storage. */
+    public InventorySnapshot createSnapshot() {
         return InventorySnapshot.create(this);
     }
 }

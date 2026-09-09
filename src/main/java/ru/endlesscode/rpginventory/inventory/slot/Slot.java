@@ -24,6 +24,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import ru.endlesscode.rpginventory.item.Texture;
+import ru.endlesscode.rpginventory.compat.InventoryPlaceholder;
 import ru.endlesscode.rpginventory.utils.InventoryUtils;
 import ru.endlesscode.rpginventory.utils.ItemUtils;
 import ru.endlesscode.rpginventory.utils.Log;
@@ -53,7 +54,7 @@ public class Slot {
     @NotNull
     private final List<Integer> slotIds;
     @NotNull
-    private final ItemStack cup;
+    private final InventoryPlaceholder placeholder;
     private final int requiredLevel;
     private final int cost;
     private final int quickSlot;
@@ -107,11 +108,16 @@ public class Slot {
             meta.setLore(config.contains("holder.lore") ? StringUtils.coloredLines(config.getStringList("holder.lore")) : Collections.singletonList("[Holder lore missing]"));
             cup.setItemMeta(meta);
         }
-        this.cup = cup;
+        this.placeholder = new InventoryPlaceholder("slot:" + name, cup);
     }
 
     private static boolean searchItem(List<String> materialList, @NotNull ItemStack itemStack) {
         for (String material : materialList) {
+            // SX-Item slot restrictions match the persisted template ID, not a player-editable name or material.
+            if (material.regionMatches(true, 0, "sxitem:", 0, 7)) {
+                if (material.substring(7).equals(ru.endlesscode.rpginventory.compat.SXItemBridge.identity(itemStack))) return true;
+                continue;
+            }
             String[] data = material.split(":");
 
             if (material.equals("ALL")) {
@@ -150,13 +156,15 @@ public class Slot {
         return false;
     }
 
+    /** Return a detached holder carrying this configured slot's persistent identity. */
     @NotNull
     public ItemStack getCup() {
-        return this.cup.clone();
+        return this.placeholder.copy();
     }
 
+    /** Holder identity survives native metadata projection; legacy unmarked items require a complete template match. */
     public boolean isCup(@Nullable ItemStack itemStack) {
-        return this.cup.equals(itemStack);
+        return this.placeholder.matches(itemStack);
     }
 
     boolean containsSlot(int slot) {

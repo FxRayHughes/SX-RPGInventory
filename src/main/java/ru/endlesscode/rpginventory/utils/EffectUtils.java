@@ -18,10 +18,6 @@
 
 package ru.endlesscode.rpginventory.utils;
 
-import com.comphenix.packetwrapper.WrapperPlayServerTitle;
-import com.comphenix.protocol.ProtocolLibrary;
-import com.comphenix.protocol.wrappers.EnumWrappers;
-import com.comphenix.protocol.wrappers.WrappedChatComponent;
 import org.bukkit.Location;
 import org.bukkit.Particle;
 import org.bukkit.entity.Entity;
@@ -29,7 +25,8 @@ import org.bukkit.entity.Player;
 import org.bukkit.util.Vector;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import ru.endlesscode.inspector.bukkit.scheduler.TrackedBukkitRunnable;
+// Use Bukkit scheduling directly; the old wrapper implements an obsolete Plugin interface.
+import org.bukkit.scheduler.BukkitRunnable;
 import ru.endlesscode.rpginventory.RPGInventory;
 import ru.endlesscode.rpginventory.compat.SoundCompat;
 import ru.endlesscode.rpginventory.misc.config.Config;
@@ -66,14 +63,14 @@ public class EffectUtils {
         Location loc = entity.getLocation();
 
         entity.getWorld().playSound(loc, SoundCompat.ENDERMAN_TELEPORT.get(), 1, (float) (1.2 + Math.random() * 0.4));
-        playParticlesToAll(Particle.EXPLOSION_LARGE, 3, loc);
+        playParticlesToAll(ru.endlesscode.rpginventory.compat.ServerCompatibility.namedConstant(Particle.class, "EXPLOSION", "EXPLOSION_NORMAL"), 3, loc);
     }
 
     public static void playDespawnEffect(Entity entity) {
         Location loc = entity.getLocation();
 
         entity.getWorld().playSound(loc, SoundCompat.ENDERMAN_TELEPORT.get(), 1, (float) (0.6 + Math.random() * 0.4));
-        playParticlesToAll(Particle.SMOKE_NORMAL, 3, loc);
+        playParticlesToAll(ru.endlesscode.rpginventory.compat.ServerCompatibility.namedConstant(Particle.class, "SMOKE", "SMOKE_NORMAL"), 3, loc);
     }
 
 
@@ -95,57 +92,23 @@ public class EffectUtils {
         }
     }
 
+    /** Bukkit owns title packet changes across protocol releases; preserve the configured subtitle timing. */
     private static void sendTitle(final Player player, int delay, String title, @NotNull final List<String> subtitles, @Nullable final Runnable callback) {
-        if (delay < 2) {
-            delay = 2;
-        }
-
-        final WrapperPlayServerTitle titlePacket = new WrapperPlayServerTitle();
-        int time = (subtitles.size() == 0 ? delay : delay * subtitles.size()) - 1;
-        try {
-            WrapperPlayServerTitle resetPacket = new WrapperPlayServerTitle();
-            resetPacket.setAction(EnumWrappers.TitleAction.RESET);
-            ProtocolLibrary.getProtocolManager().sendServerPacket(player, resetPacket.getHandle());
-
-            WrapperPlayServerTitle timesPacket = new WrapperPlayServerTitle();
-            timesPacket.setAction(EnumWrappers.TitleAction.TIMES);
-            timesPacket.setFadeIn(10);
-            timesPacket.setFadeOut(10);
-            timesPacket.setStay(20 * time);
-            ProtocolLibrary.getProtocolManager().sendServerPacket(player, timesPacket.getHandle());
-
-            title = StringUtils.coloredLine(StringUtils.setPlaceholders(player, title));
-            titlePacket.setAction(EnumWrappers.TitleAction.TITLE);
-            titlePacket.setTitle(WrappedChatComponent.fromChatMessage(StringUtils.coloredLine(title))[0]);
-            ProtocolLibrary.getProtocolManager().sendServerPacket(player, titlePacket.getHandle());
-        } catch (InvocationTargetException e) {
-            throw new IllegalStateException("Unable to send packet", e);
-        }
-
-        new TrackedBukkitRunnable() {
-            int line = 0;
-
-            @Override
-            public void run() {
-                try {
-                    if (line == subtitles.size()) {
-                        this.cancel();
-                        if (callback != null) {
-                            callback.run();
-                        }
-                        return;
-                    }
-
-                    String subtitle = StringUtils.coloredLine(StringUtils.setPlaceholders(player, subtitles.get(line)));
-                    titlePacket.setAction(EnumWrappers.TitleAction.SUBTITLE);
-                    titlePacket.setTitle(WrappedChatComponent.fromChatMessage(subtitle)[0]);
-                    ProtocolLibrary.getProtocolManager().sendServerPacket(player, titlePacket.getHandle());
-                } catch (InvocationTargetException e) {
-                    throw new IllegalStateException("Unable to send packet", e);
+        int interval = Math.max(2, delay);
+        String heading = StringUtils.coloredLine(StringUtils.setPlaceholders(player, title));
+        player.resetTitle();
+        player.sendTitle(heading, "", 10, interval * 20, 10);
+        new BukkitRunnable() {
+            int line;
+            @Override public void run() {
+                if (!player.isOnline() || line == subtitles.size()) {
+                    cancel();
+                    if (player.isOnline() && callback != null) callback.run();
+                    return;
                 }
-
-                line++;
+                String subtitle = StringUtils.coloredLine(StringUtils.setPlaceholders(player, subtitles.get(line++)));
+                player.sendTitle(heading, subtitle, 0, interval * 20, 10);
             }
-        }.runTaskTimer(RPGInventory.getInstance(), 0, 20 * delay);
+        }.runTaskTimer(RPGInventory.getInstance(), 0, 20L * interval);
     }
 }

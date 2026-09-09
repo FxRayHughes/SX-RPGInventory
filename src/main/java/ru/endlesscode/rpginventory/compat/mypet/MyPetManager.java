@@ -41,7 +41,8 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import ru.endlesscode.inspector.bukkit.scheduler.TrackedBukkitRunnable;
+// Use Bukkit scheduling directly; the old wrapper implements an obsolete Plugin interface.
+import org.bukkit.scheduler.BukkitRunnable;
 import ru.endlesscode.rpginventory.RPGInventory;
 import ru.endlesscode.rpginventory.compat.MaterialCompat;
 import ru.endlesscode.rpginventory.event.PetEquipEvent;
@@ -168,7 +169,7 @@ public class MyPetManager implements Listener {
         }
 
         final UUID petUUID = UUID.fromString(petId);
-        new TrackedBukkitRunnable() {
+        new BukkitRunnable() {
             @Override
             public void run() {
                 activateMyPet(player, petUUID);

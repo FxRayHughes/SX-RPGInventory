@@ -28,7 +28,8 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import ru.endlesscode.mimic.level.BukkitLevelSystem;
+import ru.endlesscode.rpginventory.compat.OptionalMimicBridge;
+import ru.endlesscode.rpginventory.compat.InventoryPlaceholder;
 import ru.endlesscode.rpginventory.RPGInventory;
 import ru.endlesscode.rpginventory.event.listener.LockerListener;
 import ru.endlesscode.rpginventory.item.Texture;
@@ -115,11 +116,9 @@ public class InventoryLocker {
             }
         }
         if (config.getBoolean("slots.level.enabled") && config.getBoolean("slots.level.spend")) {
-            BukkitLevelSystem levelSystem = RPGInventory.getLevelSystem(player);
             int requiredLevels = config.getInt("slots.level.required.line" + line);
-            if (levelSystem.didReachLevel(requiredLevels)) {
-                levelSystem.takeLevels(requiredLevels);
-            } else {
+            // Query and debit the same selected provider without linking optional API types in inventory code.
+            if (!OptionalMimicBridge.takeLevels(player, requiredLevels)) {
                 return false;
             }
         }
@@ -133,6 +132,11 @@ public class InventoryLocker {
 
     @NotNull
     public static ItemStack getBuyableSlotForLine(int line) {
+        return buyablePlaceholder(line).copy();
+    }
+
+    /** Purchase rows share visual templates but must retain distinct identities after native metadata projection. */
+    private static InventoryPlaceholder buyablePlaceholder(int line) {
         ItemStack slot = InventoryLocker.BUYABLE_SLOT.clone();
         ItemMeta meta = slot.getItemMeta();
         if (meta != null) {
@@ -153,7 +157,7 @@ public class InventoryLocker {
             slot.setItemMeta(meta);
         }
 
-        return addTag(slot);
+        return new InventoryPlaceholder("buyable:" + line, addTag(slot));
     }
 
     @NotNull
@@ -166,7 +170,7 @@ public class InventoryLocker {
     }
 
     public static boolean isBuyableSlot(ItemStack currentItem, int line) {
-        return InventoryLocker.getBuyableSlotForLine(line).equals(currentItem);
+        return buyablePlaceholder(line).matches(currentItem);
     }
 
     public static void lockSlots(@NotNull Player player) {

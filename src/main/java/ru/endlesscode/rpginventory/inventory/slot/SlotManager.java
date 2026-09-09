@@ -153,13 +153,24 @@ public class SlotManager {
 
     private boolean validateItems(List<String> itemsPatterns) {
         for (String itemPattern : itemsPatterns) {
-            if (!itemPattern.matches("^[\\w_]+(:\\d+(-\\d+)?)?$")) {
-                Log.w("Allowed and denied items should fit to pattern ''[string]:[number]-[number]''");
+            if (!isValidItemPattern(itemPattern)) {
+                Log.w("Allowed and denied items must use a material[:number[-number]] or sxitem:<template-id> pattern");
                 Log.w("But it was: {0}", itemPattern);
                 return false;
             }
         }
         return true;
+    }
+
+    /** Match Slot.searchItem's SX prefix before material parsing; namespace colons belong to the opaque template ID. */
+    static boolean isValidItemPattern(String pattern) {
+        if (pattern == null) return false;
+        if (pattern.regionMatches(true, 0, "sxitem:", 0, 7)) {
+            // Never authorize an empty/whitespace identity; keep every nonblank suffix character for exact matching.
+            return !pattern.substring(7).codePoints().allMatch(Character::isWhitespace);
+        }
+        // Both range bounds may contain multiple digits (upstream #180), while unknown framework prefixes remain invalid.
+        return pattern.matches("^[\\w_]+(:\\d+(-\\d+)?)?$");
     }
 
     @Nullable

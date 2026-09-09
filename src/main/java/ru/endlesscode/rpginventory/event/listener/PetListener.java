@@ -53,7 +53,8 @@ import org.bukkit.inventory.HorseInventory;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.jetbrains.annotations.NotNull;
-import ru.endlesscode.inspector.bukkit.scheduler.TrackedBukkitRunnable;
+// Use Bukkit scheduling directly; the old wrapper implements an obsolete Plugin interface.
+import org.bukkit.scheduler.BukkitRunnable;
 import ru.endlesscode.rpginventory.RPGInventory;
 import ru.endlesscode.rpginventory.compat.SoundCompat;
 import ru.endlesscode.rpginventory.inventory.InventoryManager;
@@ -214,7 +215,7 @@ public class PetListener implements Listener {
     }
 
     private double getMaxHealth(LivingEntity pet) {
-        AttributeInstance maxHealthAttribute = pet.getAttribute(Attribute.GENERIC_MAX_HEALTH);
+        AttributeInstance maxHealthAttribute = pet.getAttribute(ru.endlesscode.rpginventory.compat.ServerCompatibility.attribute("MAX_HEALTH"));
         Objects.requireNonNull(maxHealthAttribute);
         return maxHealthAttribute.getValue();
     }
@@ -394,7 +395,7 @@ public class PetListener implements Listener {
             playerWrapper.openInventory();
             event.setCancelled(true);
 
-            new TrackedBukkitRunnable() {
+            new BukkitRunnable() {
                 @Override
                 public void run() {
                     HorseInventory horseInv = ((Horse) petEntity).getInventory();

@@ -13,8 +13,10 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+/** Named equipment groups and purchase state; restoration must not silently drop groups removed from config. */
 public class InventorySnapshot implements ConfigurationSerializable {
 
+    // Persistent keys retain upstream spelling so gzip YAML migration preserves purchased capacity.
     private static final String INV_SLOTS = "slots";
     private static final String INV_BOUGHT_SLOTS = "bought-slots";
 
@@ -58,7 +60,15 @@ public class InventorySnapshot implements ConfigurationSerializable {
         return serializedInventory;
     }
 
+    /** Reject incompatible configuration before installing a live inventory that could overwrite the saved record. */
     public PlayerWrapper restore(@NotNull Player player) {
+        java.util.Set<String> configured = SlotManager.instance().getSlots().stream()
+                .map(Slot::getName).collect(Collectors.toSet());
+        for (String name : slots.keySet()) {
+            if (!configured.contains(name)) {
+                throw new IllegalArgumentException("Saved inventory references missing slot: " + name);
+            }
+        }
         final PlayerWrapper playerWrapper = new PlayerWrapper(player);
         playerWrapper.setBuyedSlots(boughtSlots);
 

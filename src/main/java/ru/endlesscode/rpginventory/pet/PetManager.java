@@ -18,7 +18,6 @@
 
 package ru.endlesscode.rpginventory.pet;
 
-import com.comphenix.protocol.wrappers.nbt.NbtCompound;
 import org.bukkit.DyeColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -42,6 +41,8 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import ru.endlesscode.rpginventory.compat.ItemCompatibility;
+import ru.endlesscode.rpginventory.compat.SXItemBridge;
 import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.metadata.MetadataValue;
 import org.jetbrains.annotations.Contract;
@@ -59,7 +60,6 @@ import ru.endlesscode.rpginventory.utils.EffectUtils;
 import ru.endlesscode.rpginventory.utils.ItemUtils;
 import ru.endlesscode.rpginventory.utils.LocationUtils;
 import ru.endlesscode.rpginventory.utils.Log;
-import ru.endlesscode.rpginventory.utils.NbtFactoryMirror;
 import ru.endlesscode.rpginventory.utils.SafeEnums;
 
 import java.nio.file.Files;
@@ -335,21 +335,13 @@ public class PetManager {
                             hasInitializationErrors = true;
                         }
                         break;
+                    case OCELOT:
                     case CAT:
-                        Cat catPet = (Cat) pet;
-                        Cat.Type catType = SafeEnums.getCatType(features.getOrDefault("TYPE", "TABBY"));
-                        if (catType != null) {
-                            catPet.setCatType(catType);
-                        } else {
-                            hasInitializationErrors = true;
-                        }
-
-                        DyeColor catCollarColor = SafeEnums.getDyeColor(features.getOrDefault("COLLAR", "RED"));
-                        if (catCollarColor != null) {
-                            catPet.setCollarColor(catCollarColor);
-                        } else {
-                            hasInitializationErrors = true;
-                        }
+                        // Variant representations differ across the ocelot, enum-cat and registry-cat generations.
+                        hasInitializationErrors |= !ru.endlesscode.rpginventory.compat.ServerCompatibility.configureCat(
+                                pet, features.getOrDefault("TYPE", "TABBY"),
+                                SafeEnums.getDyeColor(features.getOrDefault("COLLAR", "RED")));
+                        break;
                 }
         }
 
@@ -371,12 +363,12 @@ public class PetManager {
         pet.setCanPickupItems(false);
         pet.setRemoveWhenFarAway(false);
 
-        AttributeInstance maxHealth = pet.getAttribute(Attribute.GENERIC_MAX_HEALTH);
+        AttributeInstance maxHealth = pet.getAttribute(ru.endlesscode.rpginventory.compat.ServerCompatibility.attribute("MAX_HEALTH"));
         assert maxHealth != null;
         maxHealth.setBaseValue(petType.getHealth());
         pet.setHealth(PetManager.getHealth(petItem, maxHealth.getBaseValue()));
 
-        AttributeInstance speedAttribute = pet.getAttribute(Attribute.GENERIC_MOVEMENT_SPEED);
+        AttributeInstance speedAttribute = pet.getAttribute(ru.endlesscode.rpginventory.compat.ServerCompatibility.attribute("MOVEMENT_SPEED"));
         assert speedAttribute != null;
         speedAttribute.setBaseValue(petType.getSpeed());
 
@@ -481,7 +473,7 @@ public class PetManager {
     }
 
     static void addGlow(@NotNull ItemMeta meta) {
-        meta.addEnchant(Enchantment.DURABILITY, 88, true);
+        meta.addEnchant(ru.endlesscode.rpginventory.compat.ServerCompatibility.namedConstant(Enchantment.class, "UNBREAKING", "DURABILITY"), 88, true);
         meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
     }
 
@@ -489,24 +481,16 @@ public class PetManager {
         saveDeathTime(item, System.currentTimeMillis());
     }
 
+    /** Write only the pet cooldown field through PDC or legacy NBT without replacing other item metadata. */
     public static void saveDeathTime(@NotNull ItemStack item, long deathTime) {
-        NbtCompound nbt = NbtFactoryMirror.fromItemCompound(item);
-        if (deathTime == 0) {
-            nbt.remove(DEATH_TIME_TAG);
-        } else {
-            nbt.put(DEATH_TIME_TAG, deathTime);
-        }
-
-        NbtFactoryMirror.setItemTag(item, nbt);
+        if (ItemUtils.isEmpty(item)) return;
+        ItemCompatibility.setLong(item, DEATH_TIME_TAG, deathTime);
     }
 
+    /** Both legacy numeric NBT and modern typed PDC fields use the same cooldown protocol. */
     public static long getDeathTime(@NotNull ItemStack item) {
-        if (ItemUtils.isEmpty(item)) {
-            return 0L;
-        }
-
-        NbtCompound nbt = NbtFactoryMirror.fromItemCompound(item.clone());
-        return nbt.containsKey(DEATH_TIME_TAG) ? nbt.getLong(DEATH_TIME_TAG) : 0L;
+        if (ItemUtils.isEmpty(item)) return 0L;
+        return ItemCompatibility.getLong(item, DEATH_TIME_TAG, 0L);
     }
 
     public static int getCooldown(@NotNull ItemStack item) {
@@ -534,27 +518,17 @@ public class PetManager {
         return itemCooldown;
     }
 
+    /** Store the pet's health in a typed, namespaced field without touching SX-Item attributes. */
     public static void saveHealth(@NotNull ItemStack item, double health) {
-        NbtCompound nbt = NbtFactoryMirror.fromItemCompound(item);
-
-        if (health == 0) {
-            nbt.remove("pet.health");
-        } else {
-            nbt.put("pet.health", health);
-        }
-
-        NbtFactoryMirror.setItemTag(item, nbt);
+        if (ItemUtils.isEmpty(item)) return;
+        ItemCompatibility.setDouble(item, "pet.health", health);
     }
 
+    /** Clamp restored health to the current pet definition; zero preserves the legacy full-health reset behavior. */
     public static double getHealth(ItemStack item, double maxHealth) {
-        NbtCompound nbt = NbtFactoryMirror.fromItemCompound(item.clone());
-
-        if (!nbt.containsKey("pet.health")) {
-            return maxHealth;
-        }
-
-        double health = nbt.getDouble("pet.health");
-        return Math.min(health, maxHealth);
+        if (ItemUtils.isEmpty(item)) return maxHealth;
+        double value = ItemCompatibility.getDouble(item, "pet.health", 0D);
+        return value == 0 ? maxHealth : Math.min(value, maxHealth);
     }
 
     @Nullable

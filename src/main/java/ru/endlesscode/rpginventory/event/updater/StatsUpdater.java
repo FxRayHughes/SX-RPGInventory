@@ -22,7 +22,8 @@ import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.attribute.AttributeModifier;
 import org.bukkit.entity.Player;
-import ru.endlesscode.inspector.bukkit.scheduler.TrackedBukkitRunnable;
+// Use Bukkit scheduling directly; the old wrapper implements an obsolete Plugin interface.
+import org.bukkit.scheduler.BukkitRunnable;
 import ru.endlesscode.rpginventory.inventory.InventoryManager;
 import ru.endlesscode.rpginventory.inventory.PlayerWrapper;
 import ru.endlesscode.rpginventory.item.ItemManager;
@@ -34,7 +35,7 @@ import ru.endlesscode.rpginventory.pet.Attributes;
  * It is part of the RpgInventory.
  * All rights reserved 2014 - 2016 © «EndlessCode Group»
  */
-public class StatsUpdater extends TrackedBukkitRunnable {
+public class StatsUpdater extends BukkitRunnable {
     private final Player player;
 
     public StatsUpdater(Player player) {
@@ -51,7 +52,7 @@ public class StatsUpdater extends TrackedBukkitRunnable {
         playerWrapper.updatePermissions();
 
         // Update speed
-        AttributeInstance speedAttribute = this.player.getAttribute(Attribute.GENERIC_MOVEMENT_SPEED);
+        AttributeInstance speedAttribute = this.player.getAttribute(ru.endlesscode.rpginventory.compat.ServerCompatibility.attribute("MOVEMENT_SPEED"));
         assert speedAttribute != null;
         AttributeModifier rpgInvModifier = null;
         for (AttributeModifier modifier : speedAttribute.getModifiers()) {

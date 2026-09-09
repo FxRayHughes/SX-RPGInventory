@@ -32,7 +32,8 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import ru.endlesscode.inspector.report.Reporter;
+import ru.endlesscode.rpginventory.compat.PluginReporter;
+import ru.endlesscode.rpginventory.compat.InventoryPlaceholder;
 import ru.endlesscode.rpginventory.RPGInventory;
 import ru.endlesscode.rpginventory.api.InventoryAPI;
 import ru.endlesscode.rpginventory.event.PetEquipEvent;
@@ -46,6 +47,7 @@ import ru.endlesscode.rpginventory.item.ItemManager;
 import ru.endlesscode.rpginventory.item.Texture;
 import ru.endlesscode.rpginventory.misc.config.Config;
 import ru.endlesscode.rpginventory.misc.serialization.Serialization;
+import ru.endlesscode.rpginventory.storage.PlayerStorage;
 import ru.endlesscode.rpginventory.pet.PetManager;
 import ru.endlesscode.rpginventory.pet.PetType;
 import ru.endlesscode.rpginventory.resourcepack.ResourcePackModule;
@@ -71,7 +73,8 @@ public class InventoryManager {
     private static final Map<UUID, PlayerWrapper> INVENTORIES = new HashMap<>();
 
     private static ItemStack FILL_SLOT = null;
-    private static Reporter reporter;
+    private static InventoryPlaceholder fillPlaceholder;
+    private static PluginReporter reporter;
 
     private InventoryManager() {
     }
@@ -87,6 +90,9 @@ public class InventoryManager {
                 meta.setDisplayName(" ");
                 InventoryManager.FILL_SLOT.setItemMeta(meta);
             }
+            // Fillers need their own role identity because native projection can discard presentation flags.
+            fillPlaceholder = new InventoryPlaceholder("fill", FILL_SLOT);
+            FILL_SLOT = fillPlaceholder.copy();
         } catch (Exception e) {
             reporter.report("Error on InventoryManager initialization", e);
             return false;
@@ -489,96 +495,58 @@ public class InventoryManager {
         }
     }
 
+    /** First-server-join status is available without performing database I/O in a resource-pack callback. */
     public static boolean isNewPlayer(@NotNull Player player) {
-        Path dataFolder = RPGInventory.getInstance().getDataFolder().toPath();
-        return Files.notExists(dataFolder.resolve("inventories/" + player.getUniqueId() + ".inv"));
+        return !player.hasPlayedBefore();
     }
 
+    /** Acquire the persisted record asynchronously before exposing an interactive equipment inventory. */
     public static void loadPlayerInventory(Player player) {
-        if (!InventoryManager.isAllowedWorld(player.getWorld())) {
-            InventoryManager.INVENTORIES.remove(player.getUniqueId());
-            return;
-        }
-
-        try {
-            Path dataFolder = RPGInventory.getInstance().getDataPath();
-            Path folder = dataFolder.resolve("inventories");
-            Files.createDirectories(folder);
-
-            // Load inventory from file
-            Path file = folder.resolve(player.getUniqueId() + ".inv");
-
-            PlayerWrapper playerWrapper = null;
-            if (Files.exists(file)) {
-                playerWrapper = Serialization.loadPlayerOrNull(player, file);
-                if (playerWrapper == null) {
-                    Log.s("Error on loading {0}''s inventory.", player.getName());
-                    Log.s("Will be created new inventory. Old file was renamed.");
-                }
-            }
-
-            if (playerWrapper == null) {
-                playerWrapper = new PlayerWrapper(player);
-                playerWrapper.setBuyedSlots(0);
-            }
-
-            PlayerInventoryLoadEvent.Pre event = new PlayerInventoryLoadEvent.Pre(player);
-            RPGInventory.getInstance().getServer().getPluginManager().callEvent(event);
-
-            if (event.isCancelled()) {
-                return;
-            }
-
-            InventoryManager.INVENTORIES.put(player.getUniqueId(), playerWrapper);
-
-            InventoryLocker.lockSlots(player);
-            PetManager.initPlayer(player);
-
-            RPGInventory.getInstance().getServer().getPluginManager().callEvent(new PlayerInventoryLoadEvent.Post(player));
-        } catch (IOException e) {
-            reporter.report("Error on inventory load", e);
-        }
+        if (!isAllowedWorld(player.getWorld())) return;
+        PlayerInventoryLoadEvent.Pre event = new PlayerInventoryLoadEvent.Pre(player);
+        RPGInventory.getInstance().getServer().getPluginManager().callEvent(event);
+        if (!event.isCancelled()) PlayerStorage.load(player);
     }
 
+    /** Storage calls this only on the server thread, after a complete, ownership-checked load. */
+    public static void installLoadedInventory(Player player, PlayerWrapper wrapper) {
+        INVENTORIES.put(player.getUniqueId(), wrapper);
+        InventoryLocker.lockSlots(player);
+        PetManager.initPlayer(player);
+        RPGInventory.getInstance().getServer().getPluginManager().callEvent(new PlayerInventoryLoadEvent.Post(player));
+    }
+
+    /** Queue a final snapshot before forgetting the live view; expired sessions still produce recovery data. */
     public static void unloadPlayerInventory(@NotNull Player player) {
-        if (!InventoryManager.playerIsLoaded(player)) {
-            return;
-        }
-
-        InventoryManager.INVENTORIES.get(player.getUniqueId()).onUnload();
-        savePlayerInventory(player);
+        PlayerStorage.cancelLoad(player);
+        PlayerWrapper wrapper = INVENTORIES.get(player.getUniqueId());
+        if (wrapper == null) return;
+        // Close while the wrapper is still registered so the close listener snapshots and releases its backpack.
+        if (wrapper.getBackpack() != null || wrapper.isOpened()) player.closeInventory();
+        wrapper.onUnload();
+        // Serialization failure has no durable recovery bytes; retain and freeze the only remaining live copy.
+        if (!PlayerStorage.save(player, wrapper, true)) return;
         InventoryLocker.unlockSlots(player);
-
-        InventoryManager.INVENTORIES.remove(player.getUniqueId());
-
+        INVENTORIES.remove(player.getUniqueId());
         RPGInventory.getInstance().getServer().getPluginManager().callEvent(new PlayerInventoryUnloadEvent.Post(player));
     }
 
+    /** Serialize on the server thread; database writes are ordered by the shared storage worker. */
     public static void savePlayerInventory(@NotNull Player player) {
-        if (!InventoryManager.playerIsLoaded(player)) {
-            return;
-        }
-
-        PlayerWrapper playerWrapper = InventoryManager.INVENTORIES.get(player.getUniqueId());
-        try {
-            Path dataFolder = RPGInventory.getInstance().getDataPath();
-            Path folder = dataFolder.resolve("inventories");
-            Files.createDirectories(folder);
-
-            Path file = folder.resolve(player.getUniqueId() + ".inv");
-            Files.deleteIfExists(file);
-
-            Serialization.save(playerWrapper.createSnapshot(), file);
-        } catch (IOException | NullPointerException e) {
-            Log.w(e, "Error on inventory save");
-        }
+        PlayerWrapper wrapper = INVENTORIES.get(player.getUniqueId());
+        if (wrapper != null) PlayerStorage.save(player, wrapper, false);
     }
+
+    /** After all players unload, any remaining wrapper is an unserialized live copy that reload must preserve. */
+    public static boolean hasRetainedState() { return !INVENTORIES.isEmpty(); }
 
     @NotNull
     public static PlayerWrapper get(@NotNull OfflinePlayer player) {
         PlayerWrapper playerWrapper = InventoryManager.INVENTORIES.get(player.getUniqueId());
         if (playerWrapper == null) {
-            throw new IllegalStateException(player.getName() + "'s inventory should be initialized!");
+            // Legacy SX-Attribute reads the API during join while persistence is still loading.
+            // An unregistered empty read view avoids an exception; interactive callers must check playerIsLoaded.
+            return new PlayerWrapper(player);
         }
 
         return playerWrapper;
@@ -596,7 +564,7 @@ public class InventoryManager {
     }
 
     public static boolean isFilledSlot(@Nullable ItemStack item) {
-        return InventoryManager.FILL_SLOT.equals(item);
+        return fillPlaceholder != null && fillPlaceholder.matches(item);
     }
 
     public static boolean isEmptySlot(@Nullable ItemStack item) {
@@ -611,7 +579,8 @@ public class InventoryManager {
 
     @Contract("null -> false")
     public static boolean playerIsLoaded(@Nullable AnimalTamer player) {
-        return player != null && InventoryManager.INVENTORIES.containsKey(player.getUniqueId());
+        return player != null && InventoryManager.INVENTORIES.containsKey(player.getUniqueId())
+                && PlayerStorage.isActive(player.getUniqueId());
     }
 
     public static boolean isAllowedWorld(@NotNull World world) {

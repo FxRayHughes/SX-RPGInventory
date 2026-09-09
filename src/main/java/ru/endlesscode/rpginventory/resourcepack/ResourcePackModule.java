@@ -18,11 +18,6 @@
 
 package ru.endlesscode.rpginventory.resourcepack;
 
-import com.comphenix.packetwrapper.WrapperPlayClientResourcePackStatus;
-import com.comphenix.packetwrapper.WrapperPlayServerResourcePackSend;
-import com.comphenix.protocol.ProtocolLibrary;
-import com.comphenix.protocol.events.PacketAdapter;
-import com.comphenix.protocol.events.PacketEvent;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
@@ -32,12 +27,16 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityTargetLivingEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerResourcePackStatusEvent;
+import java.nio.charset.StandardCharsets;
+import ru.endlesscode.rpginventory.compat.ServerCompatibility;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import ru.endlesscode.inspector.bukkit.scheduler.TrackedBukkitRunnable;
+// Use Bukkit scheduling directly; the old wrapper implements an obsolete Plugin interface.
+import org.bukkit.scheduler.BukkitRunnable;
 import ru.endlesscode.rpginventory.RPGInventory;
 import ru.endlesscode.rpginventory.inventory.InventoryManager;
 import ru.endlesscode.rpginventory.misc.config.Config;
@@ -61,6 +60,8 @@ public class ResourcePackModule implements Listener {
     private final Plugin plugin;
     private final String resourcePackUrl;
     private final String resourcePackHash;
+    // A stable UUID distinguishes this pack from requests made by other plugins.
+    private final UUID resourcePackId;
 
     private final List<UUID> loadList = new ArrayList<>();
 
@@ -68,6 +69,7 @@ public class ResourcePackModule implements Listener {
         this.plugin = plugin;
         this.resourcePackUrl = resourcePackUrl;
         this.resourcePackHash = resourcePackHash;
+        this.resourcePackId = UUID.nameUUIDFromBytes((resourcePackUrl + resourcePackHash).getBytes(StandardCharsets.UTF_8));
     }
 
     @Nullable
@@ -90,7 +92,6 @@ public class ResourcePackModule implements Listener {
 
         ResourcePackModule resourcePackModule = new ResourcePackModule(plugin, rpUrl, rpHash);
         plugin.getServer().getPluginManager().registerEvents(resourcePackModule, plugin);
-        ProtocolLibrary.getProtocolManager().addPacketListener(resourcePackModule.new ResourcePackPacketAdapter(plugin));
         return resourcePackModule;
     }
 
@@ -124,10 +125,13 @@ public class ResourcePackModule implements Listener {
     }
 
     private void sendResourcePack(@NotNull final Player player) {
-        new TrackedBukkitRunnable() {
+        new BukkitRunnable() {
             @Override
             public void run() {
-                player.setResourcePack(resourcePackUrl);
+                if (!player.isOnline()) return;
+                loadList.add(player.getUniqueId());
+                // Bukkit owns the modern resource-pack packet format and includes the configured hash.
+                ServerCompatibility.resourcePack(player, resourcePackId, resourcePackUrl, decodeHash(resourcePackHash));
             }
         }.runTaskLater(this.plugin, TICKS_IN_SECOND);
     }
@@ -166,62 +170,27 @@ public class ResourcePackModule implements Listener {
     }
 
 
-    class ResourcePackPacketAdapter extends PacketAdapter {
-
-        ResourcePackPacketAdapter(Plugin plugin) {
-            super(plugin, WrapperPlayClientResourcePackStatus.TYPE, WrapperPlayServerResourcePackSend.TYPE);
-        }
-
-        @Override
-        public void onPacketSending(@NotNull PacketEvent event) {
-            WrapperPlayServerResourcePackSend packet = new WrapperPlayServerResourcePackSend(event.getPacket());
-            if (!packet.getUrl().equals(resourcePackUrl)) {
-                return;
-            }
-
-            packet.setHash(resourcePackHash);
-            final Player player = event.getPlayer();
-            loadList.add(player.getUniqueId());
-        }
-
-        @Override
-        public void onPacketReceiving(@NotNull PacketEvent event) {
-            WrapperPlayClientResourcePackStatus packet = new WrapperPlayClientResourcePackStatus(event.getPacket());
-            final Player player = event.getPlayer();
-            if (loadList.contains(player.getUniqueId())) {
-                switch (packet.getResult()) {
-                    case ACCEPTED:
-                        break;
-                    case SUCCESSFULLY_LOADED:
-                        onSuccessfullyLoaded(player);
-                        break;
-                    case DECLINED:
-                    case FAILED_DOWNLOAD:
-                        onFailedOrDeclined(player);
-                }
-            }
-        }
-
-        private void onSuccessfullyLoaded(@NotNull Player player) {
-            final UUID playerId = player.getUniqueId();
-            new TrackedBukkitRunnable() {
-                @Override
-                public void run() {
-                    InventoryManager.loadPlayerInventory(player);
-                    player.removePotionEffect(PotionEffectType.BLINDNESS);
-                }
-            }.runTaskLater(this.plugin, 1);
-            loadList.remove(playerId);
-        }
-
-        private void onFailedOrDeclined(@NotNull Player player) {
-            new TrackedBukkitRunnable() {
-                @Override
-                public void run() {
-                    player.kickPlayer(RPGInventory.getLanguage().getMessage("error.rp.denied"));
-                }
-            }.runTaskLater(this.plugin, TICKS_IN_SECOND);
+    /** Process only this plugin's request, through Bukkit's synchronous resource-pack lifecycle event. */
+    @EventHandler
+    public void onPackStatus(PlayerResourcePackStatusEvent event) {
+        Player player = event.getPlayer();
+        if (!ServerCompatibility.isResourcePack(event, resourcePackId) || !loadList.contains(player.getUniqueId())) return;
+        // Use names because newer statuses are absent from legacy Bukkit enum definitions.
+        String status = event.getStatus().name();
+        if ("SUCCESSFULLY_LOADED".equals(status)) {
             loadList.remove(player.getUniqueId());
-        }
+            player.removePotionEffect(PotionEffectType.BLINDNESS);
+            InventoryManager.loadPlayerInventory(player);
+        } else if (java.util.Arrays.asList("DECLINED", "FAILED_DOWNLOAD", "INVALID_URL", "FAILED_RELOAD", "DISCARDED").contains(status)) {
+            loadList.remove(player.getUniqueId());
+            player.kickPlayer(RPGInventory.getLanguage().getMessage("error.rp.denied"));
+        } // ACCEPTED and DOWNLOADED remain pending until the client reports application.
+
+    }
+    /** Decode the validator-approved SHA-1 without requiring Java 17's HexFormat on old servers. */
+    private static byte[] decodeHash(String hash) {
+        byte[] bytes = new byte[hash.length() / 2];
+        for (int i = 0; i < bytes.length; i++) bytes[i] = (byte) Integer.parseInt(hash.substring(i * 2, i * 2 + 2), 16);
+        return bytes;
     }
 }

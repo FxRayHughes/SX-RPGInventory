@@ -20,9 +20,9 @@ package ru.endlesscode.rpginventory.utils;
 
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
-import ru.endlesscode.inspector.bukkit.scheduler.TrackedBukkitRunnable;
-import ru.endlesscode.mimic.classes.BukkitClassSystem;
-import ru.endlesscode.mimic.level.BukkitLevelSystem;
+// Use Bukkit scheduling directly; the old wrapper implements an obsolete Plugin interface.
+import org.bukkit.scheduler.BukkitRunnable;
+import ru.endlesscode.rpginventory.compat.OptionalMimicBridge;
 import ru.endlesscode.rpginventory.RPGInventory;
 import ru.endlesscode.rpginventory.inventory.InventoryManager;
 import ru.endlesscode.rpginventory.inventory.PlayerWrapper;
@@ -35,15 +35,15 @@ import java.util.List;
  * All rights reserved 2014 - 2016 © «EndlessCode Group»
  */
 public class PlayerUtils {
+    /** Core item validation must remain loadable when optional Mimic API classes are absent. */
     @SuppressWarnings("BooleanMethodIsAlwaysInverted")
     public static boolean checkLevel(@NotNull Player player, int required) {
-        BukkitLevelSystem levelSystem = RPGInventory.getLevelSystem(player);
-        return levelSystem.didReachLevel(required);
+        return OptionalMimicBridge.checkLevel(player, required);
     }
 
+    /** Delegate class semantics through the dependency-free boundary, including vanilla permission fallback. */
     public static boolean checkClass(@NotNull Player player, @NotNull List<String> classes) {
-        BukkitClassSystem classSystem = RPGInventory.getClassSystem(player);
-        return classSystem.hasAnyOfClasses(classes);
+        return OptionalMimicBridge.checkClass(player, classes);
     }
 
     @SuppressWarnings("BooleanMethodIsAlwaysInverted")
@@ -58,7 +58,7 @@ public class PlayerUtils {
     }
 
     public static void updateInventory(@NotNull final Player player) {
-        new TrackedBukkitRunnable() {
+        new BukkitRunnable() {
             @Override
             public void run() {
                 player.updateInventory();

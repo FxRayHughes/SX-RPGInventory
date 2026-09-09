@@ -248,6 +248,9 @@ public class PetType extends ClassedItem {
                 possibleSkin = defaultSkin;
             }
 
+            // Cats were represented by the ocelot entity before 1.14; preserve the configured companion role.
+            if ("CAT".equals(possibleSkin) && ru.endlesscode.rpginventory.compat.VersionHandler.getVersionCode()
+                    < ru.endlesscode.rpginventory.compat.VersionHandler.VERSION_1_14) possibleSkin = "OCELOT";
             return EntityType.valueOf(possibleSkin);
         }
     }

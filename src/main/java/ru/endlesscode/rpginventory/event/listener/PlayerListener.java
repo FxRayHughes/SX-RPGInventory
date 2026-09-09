@@ -41,7 +41,8 @@ public class PlayerListener implements Listener {
     public void onCommand(@NotNull PlayerCommandPreprocessEvent event) {
         Player player = event.getPlayer();
         if (InventoryManager.isAllowedWorld(player.getWorld()) && !InventoryManager.playerIsLoaded(player)) {
-            PlayerUtils.sendMessage(player, RPGInventory.getLanguage().getMessage("error.rp.denied"));
+            // 异步装备加载与资源包接受状态无关，使用独立提示避免误导玩家修改资源包设置。
+            PlayerUtils.sendMessage(player, RPGInventory.getLanguage().getMessage("error.player.loading"));
             event.setCancelled(true);
         }
     }

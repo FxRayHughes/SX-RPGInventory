@@ -7,7 +7,6 @@ import org.jetbrains.annotations.NotNull;
 import ru.endlesscode.rpginventory.inventory.PlayerWrapper;
 import ru.endlesscode.rpginventory.inventory.slot.Slot;
 import ru.endlesscode.rpginventory.utils.ItemUtils;
-import ru.endlesscode.rpginventory.utils.Log;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -15,11 +14,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+/** Preserves named-group positions, purchases and complete items across storage and configuration reloads. */
 public class SlotSnapshot implements ConfigurationSerializable {
 
+    // These legacy keys form the saved group protocol; renaming them requires an explicit migration.
     private static final String SLOT_TYPE = "type";
     private static final String SLOT_BOUGHT = "bought";
     private static final String SLOT_ITEMS = "items";
+    // New payload key stores complete Paper item bytes; keep 'items' readable for legacy file migration.
+    private static final String SLOT_ITEM_BYTES = "item-bytes-v1";
 
     private final String name;
     private final String type;
@@ -40,7 +43,8 @@ public class SlotSnapshot implements ConfigurationSerializable {
         final Inventory inventory = playerWrapper.getInventory();
         final List<ItemStack> items = slot.getSlotIds().stream()
                 .map(inventory::getItem)
-                .filter(stack -> ItemUtils.isNotEmpty(stack) && !slot.isCup(stack))
+                // Preserve relative positions inside a named multi-slot group, excluding UI placeholders.
+                .map(stack -> ItemUtils.isNotEmpty(stack) && !slot.isCup(stack) ? stack.clone() : null)
                 .collect(Collectors.toList());
 
         return new SlotSnapshot(slot.getName(), slot.getSlotType().name(), bought, items);
@@ -51,7 +55,9 @@ public class SlotSnapshot implements ConfigurationSerializable {
     public static SlotSnapshot deserialize(@NotNull Map<String, Object> map) {
         String type = (String) map.getOrDefault(SLOT_TYPE, "{missing}");
         boolean bought = map.containsKey(SLOT_BOUGHT);
-        List<ItemStack> items = (List<ItemStack>) map.getOrDefault(SLOT_ITEMS, Collections.emptyList());
+        List<ItemStack> items = map.containsKey(SLOT_ITEM_BYTES)
+                ? ItemPayloadCodec.decode((List<?>) map.get(SLOT_ITEM_BYTES))
+                : (List<ItemStack>) map.getOrDefault(SLOT_ITEMS, Collections.emptyList());
 
         return new SlotSnapshot("", type, bought, items);
     }
@@ -61,7 +67,7 @@ public class SlotSnapshot implements ConfigurationSerializable {
     public Map<String, Object> serialize() {
         final Map<String, Object> serializedSlot = new LinkedHashMap<>();
         serializedSlot.put(SLOT_TYPE, this.type);
-        serializedSlot.put(SLOT_ITEMS, this.items);
+        serializedSlot.put(SLOT_ITEM_BYTES, ItemPayloadCodec.encode(this.items));
         if (this.bought) {
             serializedSlot.put(SLOT_BOUGHT, true);
         }
@@ -71,8 +77,8 @@ public class SlotSnapshot implements ConfigurationSerializable {
 
     void restore(@NotNull PlayerWrapper playerWrapper, @NotNull Slot slot) {
         if (!slot.getSlotType().name().equals(type)) {
-            Log.w("Slot ''{0}'' skipped. Wrong type of saved slot: {1}", slot.getName(), type);
-            return;
+            // Skipping would turn a configuration mistake into permanent loss on the next autosave.
+            throw new IllegalArgumentException("Saved slot type differs from configuration: " + slot.getName());
         }
 
         if (bought) {
@@ -81,13 +87,19 @@ public class SlotSnapshot implements ConfigurationSerializable {
 
         final Inventory inventory = playerWrapper.getInventory();
         final List<Integer> slotIds = slot.getSlotIds();
+        for (int i = slotIds.size(); i < items.size(); i++) {
+            if (ItemUtils.isNotEmpty(items.get(i))) {
+                throw new IllegalArgumentException("Slot size reduction would discard saved items: " + slot.getName());
+            }
+        }
         for (int i = 0; i < Math.min(slotIds.size(), items.size()); i++) {
-            inventory.setItem(slotIds.get(i), items.get(i));
+            // Empty persisted positions keep their configured UI cup rather than removing the placeholder.
+            if (ItemUtils.isNotEmpty(items.get(i))) inventory.setItem(slotIds.get(i), items.get(i));
         }
     }
 
     boolean shouldBeSaved() {
-        return !items.isEmpty() || bought;
+        return items.stream().anyMatch(ItemUtils::isNotEmpty) || bought;
     }
 
     public String getName() {

@@ -31,6 +31,7 @@ import java.util.Collections;
  * All rights reserved 2014 - 2016 © «EndlessCode Group»
  */
 public class ConfigUpdater {
+    /** 沿用历史版本迁移条件；新生成的展示示例使用中文，不额外改写现有用户配置。 */
     public static void update(Version configVersion) {
         FileConfiguration config = Config.getConfig();
 
@@ -55,8 +56,8 @@ public class ConfigUpdater {
         if (configVersion.compareTo("1.0.4") < 0) {
             config.set("alternate-view.item", "ENCHANTED_BOOK");
             config.set("alternate-view.slot", 8);
-            config.set("alternate-view.name", "&6Equipment");
-            config.set("alternate-view.lore", "&7&o(Right click to open equipment)");
+            config.set("alternate-view.name", "&6装备");
+            config.set("alternate-view.lore", "&7&o（右键打开装备界面）");
         }
 
         if (configVersion.compareTo("1.0.5") < 0) {
@@ -124,34 +125,35 @@ public class ConfigUpdater {
             config.set("slots.locked", "DIAMOND_HOE:19");
             config.set("slots.buyable", "DIAMOND_HOE:18");
 
-            // Added craft extensions
+            // 仅在原有迁移分支生成中文示例；扩展 ID、权限与固定槽位编号保持兼容。
             config.set("craft.enabled", true);
             config.set("craft.extendable", "DIAMOND_HOE:0");
-            config.set("craft.extensions.journeyman.name", "&aJourneyman slots");
-            config.set("craft.extensions.journeyman.lore", "&eYou must be a journeyman to use it");
+            config.set("craft.extensions.journeyman.name", "&a熟练工合成槽");
+            config.set("craft.extensions.journeyman.lore", "&e获得熟练工权限后可使用这些槽位");
             config.set("craft.extensions.journeyman.slots", Arrays.asList(8, 9));
-            config.set("craft.extensions.master.name", "&3Master slots");
-            config.set("craft.extensions.master.lore", "&eYou must be a master to use it");
+            config.set("craft.extensions.master.name", "&3大师合成槽");
+            config.set("craft.extensions.master.lore", "&e获得大师权限后可使用这些槽位");
             config.set("craft.extensions.master.includes", Collections.singletonList("journeyman"));
             config.set("craft.extensions.master.slots", Arrays.asList(1, 4, 7));
 
-            // Added join-messages
+            // 欢迎示例使用中文；%PLAYER% 保留旧版迁移使用的占位符协议。
             config.set("join-messages.enabled", true);
             config.set("join-messages.delay", 3);
-            config.set("join-messages.default.title", "&l&2Welcome to server!");
-            config.set("join-messages.default.text", Arrays.asList("&6Glad to see you, &3%PLAYER%", "&6This server using &9RPGInventory"));
-            config.set("join-messages.rp-info.title", "&l&4It is important!");
+            config.set("join-messages.default.title", "&l&2欢迎来到服务器！");
+            config.set("join-messages.default.text", Arrays.asList("&6很高兴见到你，&3%PLAYER%", "&6本服使用 &9SX-RPGInventory &6管理装备与背包"));
+            config.set("join-messages.rp-info.title", "&l&4资源包使用说明");
             config.set("join-messages.rp-info.text", Arrays.asList(
-                    "&6You should &callow &6resource pack to play on this server",
-                    "&6This will allow you fully immerse in the RPG atmosphere",
-                    "&6But if you declined downloading of RP you can fix it...",
-                    "&6Select the server in list, click &e'Edit' &6 and set &e'Resource-Pack: Accept'"));
+                    "&6请在服务器设置中&c允许&6使用资源包",
+                    "&6资源包可正确显示装备槽位与物品贴图",
+                    "&6如果此前拒绝了下载，可以重新调整设置",
+                    "&6选择本服，点击&e“编辑”&6，将&e“服务器资源包”&6设为&e“启用”"));
         }
 
         if (configVersion.compareTo("2.0.1") < 0) {
+            // 英文旧值是历史迁移的识别条件，必须保留，避免覆盖服主自定义标题。
             if ("&l&2Welcome to server!".equals(config.get("join-messages.rp-info.title"))) {
-                config.set("join-messages.rp-info.title", "&l&4It is important!");
-                config.set("join-messages.default.title", "&l&2Welcome to server!");
+                config.set("join-messages.rp-info.title", "&l&4资源包使用说明");
+                config.set("join-messages.default.title", "&l&2欢迎来到服务器！");
             }
         }
 

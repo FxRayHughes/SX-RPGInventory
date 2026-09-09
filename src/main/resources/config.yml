@@ -1,44 +1,63 @@
-# RPG Inventory
-# by OsipXD
+# SX-RPGInventory 主配置；配置键、类型枚举、权限节点和占位符属于程序协议，请勿翻译。
+enabled: true # 是否启用插件功能。
 
-###############################
-#           General           #
-###############################
+# 玩家装备与便携背包只使用一个权威存储后端；切换前先迁移数据并重启。
+storage:
+  backend: SQLITE # 可选 SQLITE、MYSQL、POSTGRESQL；数据库是唯一权威存储。旧 REDIS 后端须先迁移，不能直接切换。
+  # 共享装备的服务器必须连接同一后端，并使用相同的命名空间。
+  namespace: default
+  # 可续期的独占租约，防止两台服务器同时修改同一份数据。
+  lease-seconds: 60
+  sqlite:
+    # 相对于插件数据目录的数据库文件路径。
+    file: storage/inventories.db
+  mysql:
+    # MySQL 8.x，使用 InnoDB 与 LONGBLOB 保存完整物品数据；请替换地址和账号。
+    url: jdbc:mysql://localhost:3306/minecraft
+    username: minecraft
+    password: ''
+    # 填写环境变量名后，该变量必须存在，且优先于上面的 password。
+    password-env: ''
+    pool-size: 4
+  postgresql:
+    # 请替换地址、数据库名和账号；多台服务器可连接同一数据库。
+    url: jdbc:postgresql://localhost:5432/minecraft
+    username: minecraft
+    password: ''
+    # 填写环境变量名后，该变量必须存在，且优先于上面的 password。
+    password-env: ''
+    pool-size: 4
+  redis:
+    # Redis 仅缓存数据库已提交的物品快照；默认关闭，故障、过期或清空均回到数据库。
+    enabled: false
+    uri: redis://localhost:6379/0
+    # 可填写保存 redis:// 或 rediss:// 连接地址的环境变量名；明确指定但不存在时拒绝启动。
+    uri-env: ''
+    # 缓存有效期为秒，最大 86400；不改变数据库记录和租约的生命周期。
+    ttl-seconds: 300
+    # Redis 连接与命令超时为毫秒，最大 1000；失败不阻止数据库正常存取。
+    timeout-millis: 200
 
-# Plugin enabling
-enabled: true
+# 默认中文；值与 lang 目录中的文件名一致，不含 .lang。缺少的翻译项回退到中文。
+language: zh
+# 上游更新器面向旧 RPGInventory 发布线，本分支默认关闭更新检查。
+check-update: false
 
-# Language (must be same as the file name in the folder /lang)
-language: en
-
-# Check update system
-check-update: true
-
-# Worlds settings
 worlds:
-  # Mode of list. Can be either BLACKLIST or WHITELIST
+  # BLACKLIST 为黑名单，WHITELIST 为白名单；名称填写实际世界目录名。
   mode: BLACKLIST
-
-  # List of blocked or allowed worlds
+  # 示例：仅在名为 blocked_world 的世界禁用功能。
   list:
     - blocked_world
 
-# Here you can switch textures type between custom-model-data and damage.
-# Available values:
-#   damage (default) - https://www.spigotmc.org/wiki/custom-item-models-in-1-9-and-up/
-#   custom_model_data - modern replacement for textures by damage for 1.14+
+# 贴图方式：damage 使用耐久值；custom_model_data 适用于 1.14 及以上版本。
+# 旧版贴图说明：https://www.spigotmc.org/wiki/custom-item-models-in-1-9-and-up/
 textures-type: damage
-
-# Texture to fill unavailable slots
+# 不可用槽位的填充贴图；物品名和冒号后的编号是资源包协议，不能翻译。
 fill: DIAMOND_HOE:1
 
-
-###############################
-#           Items             #
-###############################
-
 items:
-  # Pattern of item lore
+  # 物品描述的组成顺序；下划线包围的标记由插件替换，必须原样保留。
   lore-pattern:
     - _UNBREAKABLE_
     - _DROP_
@@ -50,168 +69,101 @@ items:
     - _SKILLS_
     - _SEPARATOR_
     - _STATS_
-
-  # What is used as a _SEPARATOR_
+  # _SEPARATOR_ 对应的分隔行内容。
   separator: ""
 
-
-###############################
-#         Backpacks           #
-###############################
-
 backpacks:
-  # Backpack will be deleted if it is not opened within that period (in days)
-  # Comment it out or set 0 for infinity backpacks (NOT RECOMMENDED)
-  expiration-time: 30
-
-  # Permitted number of backpacks in player inventory (0 - for unlimited)
+  # 保留旧选项以兼容已有配置；持久化存储不会按存放时间删除背包。
+  expiration-time: 0
+  # 每名玩家可携带的背包数量；0 表示不限制。
   limit: 1
-
-
-###############################
-#             GUI             #
-###############################
 
 resource-pack:
   enabled: false
-
-  # URL of your RP
-  # Example: https://dl.dropboxusercontent.com/u/105899524/RPGInventory/RPs/Default.zip
-  url: PUT_YOUR_URL_HERE
-
-  # Hash (works as identifier of RP)
-  hash: PUT_YOUR_HASH_HERE
+  # 资源包 ZIP 文件的直接下载地址；启用前请替换示例地址。
+  url: https://example.com/server-pack.zip
+  # 资源包文件的 SHA-1 校验值；更换资源包时应同步更新。
+  hash: ''
 
 join-messages:
-  # Delay in seconds for every message
+  # 各条加入提示之间的间隔，单位为秒。
   delay: 3
-
-  # Default message on every join
+  # 每次加入时的欢迎示例；%player_name% 是占位符，必须保留。
   default:
     enabled: false
-    title: "&l&2Welcome to server!"
+    title: "&l&2欢迎来到服务器！"
     text:
-      - "&6Glad to see you, &3%player_name%"
-      - "&6This server using &9RPGInventory"
-
-  # Message on first join and if player declined resource-pack
+      - "&6很高兴见到你，&3%player_name%"
+      - "&6本服使用 &9SX-RPGInventory &6管理装备与背包"
+  # 首次加入或拒绝资源包时显示的说明示例。
   rp-info:
     enabled: false
-    title: "&l&4It is important!"
+    title: "&l&4资源包使用说明"
     text:
-      - "&6You should &callow &6resource pack to play on this server"
-      - "&6This will allow you fully immerse in the RPG atmosphere"
-      - "&6But if you declined downloading of RP you can fix it..."
-      - "&6Select the server in list, click &e'Edit' &6 and set &e'Resource-Pack: Accept'"
-
-###############################
-#        Battle system        #
-###############################
+      - "&6请在服务器设置中&c允许&6使用资源包"
+      - "&6资源包可正确显示装备槽位与物品贴图"
+      - "&6如果此前拒绝了下载，可以重新调整设置"
+      - "&6选择本服，点击&e“编辑”&6，将&e“服务器资源包”&6设为&e“启用”"
 
 attack:
-  # Damage is applied only if a player has in his hands a weapon (from weapon slot)
+  # 是否仅允许手持武器槽中的武器时造成伤害。
   require-weapon: false
-
-  # When you deal damage, your hand automatically switches to weapon slot
+  # 攻击时是否自动切换到武器快捷栏。
   force-weapon: false
-
-  # When you picked up a weapon, your hand automatically switches to it
+  # 拾取武器时是否自动切换到对应快捷栏。
   auto-held: false
-
-  # Allow to damage own pet
+  # 是否允许攻击自己的宠物。
   own-pet: false
 
-
-###############################
-#            Slots            #
-###############################
-
-# Actions for vanilla armor and craft slots
-#   rpginv  - open RPG inventory
-#   default - do vanilla action
+# 点击原版护甲槽或合成槽的行为：rpginv 打开装备界面，default 执行原版操作。
 armor-slots-action: default
 craft-slots-action: rpginv
 
 slots:
-  # Slot buying
+  # 是否启用槽位购买功能。
   enabled: false
-
-  # Texture of locked slot
+  # 未解锁槽位与可购买槽位的占位贴图。
   locked: DIAMOND_HOE:19
-
-  # Texture of buyable slot
   buyable: DIAMOND_HOE:18
-
-  # Default available (free) slots
+  # 默认免费开放的槽位数量。
   free: 2
-
   money:
-    # Whether to take the money for the purchase of slots
+    # 购买槽位时是否收取金币。
     enabled: true
-
-    # Price for different lines of inventory
+    # 各排购买价格；line1、line2、line3 是固定配置键。
     cost:
       line1: 1000
       line2: 2000
       line3: 3000
-
   level:
-    # Whether to take the lvl for the purchase of slots
+    # 是否检查等级要求。
     enabled: true
-
-    # Spend levels for the purchase of slots or not
+    # 是否实际扣除等级；false 表示只检查等级。
     spend: false
-
-    # Level for different lines of inventory
     required:
       line1: 20
       line2: 30
       line3: 40
 
-
-###############################
-#            Craft            #
-###############################
-
-# Settings of craft system
 craft:
-  # Enable craft extensions
+  # 是否启用合成槽位扩展，以及是否应用于工作台。
   enabled: false
-
-  # Enable for workbench
   workbench: true
-
-  # Texture of extendable slots
+  # 尚未解锁的扩展槽位贴图。
   extendable: DIAMOND_HOE:27
-
-  # List of extensions
   extensions:
-
-    # Name of extension (permission will be rpginventory.craft.<extension>)
-    # In this case permission will be: rpginventory.craft.journeyman
+    # 扩展 ID 决定权限节点，例如 rpginventory.craft.journeyman；请勿翻译 ID。
     journeyman:
-      # Name of extendable slot
-      name: "&aJourneyman slots"
-
-      # Lore of extendable slot
+      name: "&a熟练工合成槽"
       lore:
-        - "&eYou must be a journeyman to use it"
-
-      # Slots in extension
+        - "&e获得熟练工权限后可使用这些槽位"
+      # 工作台固定原始槽位编号，不能按显示顺序重新编号。
       slots: [8, 9]
-
-    # Name of extension
     master:
-      # Name of extendable slot
-      name: "&3Master slots"
-
-      # Lore of extendable slot
+      name: "&3大师合成槽"
       lore:
-        - "&eYou must be a master to use it"
-
-      # Whats extensions included to this extension
+        - "&e获得大师权限后可使用这些槽位"
+      # 当前扩展同时包含的其他扩展 ID。
       includes:
         - journeyman
-
-      # Slots in extension
       slots: [1, 4, 7]

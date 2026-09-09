@@ -18,24 +18,22 @@
 
 package ru.endlesscode.rpginventory.inventory.craft;
 
-import com.comphenix.protocol.PacketType;
-import com.comphenix.protocol.ProtocolLibrary;
-import com.comphenix.protocol.events.PacketAdapter;
-import com.comphenix.protocol.events.PacketEvent;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.MemorySection;
 import org.bukkit.entity.Player;
+import org.bukkit.plugin.Plugin;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import ru.endlesscode.rpginventory.RPGInventory;
 import ru.endlesscode.rpginventory.compat.VersionHandler;
-import ru.endlesscode.rpginventory.event.listener.CraftListener;
+import ru.endlesscode.rpginventory.inventory.InventoryManager;
 import ru.endlesscode.rpginventory.item.Texture;
 import ru.endlesscode.rpginventory.misc.config.Config;
 import ru.endlesscode.rpginventory.utils.Log;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Predicate;
 
 /**
  * Created by OsipXD on 29.08.2016
@@ -46,11 +44,14 @@ public class CraftManager {
     @NotNull
     private static final List<CraftExtension> EXTENSIONS = new ArrayList<>();
     private static Texture textureOfExtendable;
+    private static Runnable packetCleanup;
 
     private CraftManager() {
     }
 
+    /** Enable craft restrictions only when one optional packet provider can enforce the complete slot policy. */
     public static boolean init(@NotNull RPGInventory instance) {
+        stop();
         MemorySection config = (MemorySection) Config.getConfig().get("craft");
 
         if (config == null) {
@@ -63,6 +64,11 @@ public class CraftManager {
             return false;
         }
 
+        if (!instance.getServer().getPluginManager().isPluginEnabled("ProtocolLib")
+                && !instance.getServer().getPluginManager().isPluginEnabled("packetevents")) {
+            Log.w("Craft extensions require PacketEvents or ProtocolLib supporting this server version.");
+            return false;
+        }
         try {
             Texture texture = Texture.parseTexture(config.getString("extendable"));
             if (texture.isEmpty()) {
@@ -82,30 +88,54 @@ public class CraftManager {
                 EXTENSIONS.add(new CraftExtension(extensionName, extensions.getConfigurationSection(extensionName)));
             }
 
-            // Register listeners
-            ProtocolLibrary.getProtocolManager().addPacketListener(new CraftListener(instance));
-
-            // Disable recipe book if need
-            if (VersionHandler.getVersionCode() >= VersionHandler.VERSION_1_12) {
-                disableRecipeBook();
-            }
-
-            return true;
+            // Modern protocols prefer PacketEvents; neither provider's API may enter core method signatures.
+            boolean modern = VersionHandler.getVersionCode() >= 1_20_05;
+            return (modern ? registerProvider(instance, "packetevents") : registerProvider(instance, "ProtocolLib"))
+                    || (modern ? registerProvider(instance, "ProtocolLib") : registerProvider(instance, "packetevents"));
         } catch (Exception e) {
             instance.getReporter().report("Error on CraftManager initialization", e);
             return false;
         }
     }
 
-    private static void disableRecipeBook() {
-        ProtocolLibrary.getProtocolManager().addPacketListener(
-                new PacketAdapter(RPGInventory.getInstance(), PacketType.Play.Server.RECIPES) {
-                    @Override
-                    public void onPacketSending(@NotNull PacketEvent event) {
-                        event.setCancelled(true);
-                    }
-                });
-        Log.i("Recipe book conflicts with craft extensions and was disabled");
+    /** Detach the chosen provider on reload/disable without resolving any optional packet classes in core code. */
+    public static void stop() {
+        Runnable cleanup = packetCleanup;
+        packetCleanup = null;
+        if (cleanup != null) {
+            try { cleanup.run(); }
+            catch (RuntimeException | LinkageError failure) {
+                // Optional networking cleanup must not prevent final inventory snapshots and pool drainage.
+                Log.w(failure, "Cannot completely detach craft packet provider");
+            }
+        }
+    }
+
+    private static boolean registerProvider(Plugin plugin, String provider) {
+        if (!plugin.getServer().getPluginManager().isPluginEnabled(provider)) return false;
+        String className = "packetevents".equals(provider)
+                ? "ru.endlesscode.rpginventory.compat.packetevents.PacketEventsCraftIntegration"
+                : "ru.endlesscode.rpginventory.compat.protocol.ProtocolCraftIntegration";
+        try {
+            Class<?> integration = Class.forName(className, true, CraftManager.class.getClassLoader());
+            Runnable cleanup = (Runnable) integration.getMethod("register", Plugin.class, Predicate.class)
+                    .invoke(null, plugin, (Predicate<Player>) CraftManager::blocksRecipeBook);
+            if (cleanup == null) return false;
+            packetCleanup = cleanup;
+            Log.i("Craft packet provider: {0}", provider);
+            return true;
+        } catch (ReflectiveOperationException | LinkageError | RuntimeException failure) {
+            Log.w(failure, "Cannot enable craft packet provider " + provider);
+            return false;
+        }
+    }
+
+    /** Pending storage and locked craft extensions both forbid automatic transfers from the player's inventory. */
+    private static boolean blocksRecipeBook(Player player) {
+        if (!InventoryManager.isAllowedWorld(player.getWorld())) return false;
+        if (!InventoryManager.playerIsLoaded(player)) return true;
+        return (InventoryManager.get(player).isPocketCraft() || Config.getConfig().getBoolean("craft.workbench", true))
+                && !getExtensions(player).isEmpty();
     }
 
     @NotNull

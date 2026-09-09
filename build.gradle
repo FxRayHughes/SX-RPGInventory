@@ -1,128 +1,197 @@
-import org.apache.tools.ant.filters.ReplaceTokens
-
 plugins {
-    id 'com.github.johnrengelman.shadow' version '7.1.2'
-    id 'ru.endlesscode.bukkitgradle' version '0.10.1'
-    id 'com.github.ben-manes.versions' version "0.42.0"
+    id 'java-library'
+    id 'com.gradleup.shadow' version '9.3.2'
     id 'jacoco'
+    id 'maven-publish'
 }
 
-group = 'ru.endlesscode.rpginventory'
-version = pluginVersion
-description = pluginDesc
+group = 'github.saukiya.sxrpginventory'
+version = providers.gradleProperty('pluginVersion').get()
+description = 'RPG inventory and durable equipment storage for the SX plugin ecosystem'
 
-bukkit {
-    apiVersion = '1.18.2'
-
-    meta {
-        name.set("RPGInventory")
-        main.set("${group}.RPGInventoryPlugin")
-        apiVersion.set("1.14")
-        authors.set(["osipxd", "EndlessCode Group"])
-    }
-
-    server {
-        core = "paper"
-        eula = true
-    }
+java {
+    // JDK 25 reads the newest API, while production bytecode stays Java 8 for the oldest test server.
+    toolchain.languageVersion = JavaLanguageVersion.of(25)
+    withSourcesJar()
 }
 
-// Replace sentry credentials in code
-def processSources = tasks.register("processSource", Sync) {
-    // The key should be declared in ~/.gradle/gradle.properties
-    def dsn = findProperty("rpginvSentryDsn") ?: ""
-
-    from(sourceSets.main.java)
-    inputs.property("dsn", dsn)
-    filter(ReplaceTokens, tokens: [sentry_dsn: dsn])
-    into("$buildDir/src")
+// Compilation reads the newest API on JDK 25; production classfiles still target Java 8 below.
+// Runtime dependencies keep their Java 8 constraint so an incompatible library cannot slip into the plugin.
+configurations.named('compileClasspath') {
+    attributes.attribute(org.gradle.api.attributes.java.TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, 25)
+}
+configurations.named('testCompileClasspath') {
+    attributes.attribute(org.gradle.api.attributes.java.TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, 25)
+}
+configurations.named('testRuntimeClasspath') {
+    attributes.attribute(org.gradle.api.attributes.java.TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, 25)
 }
 
-compileJava {
-    source = processSources.get().outputs
-}
+// Legacy MyPet is optional and its artifacts require GitHub Packages credentials.
+def withMyPet = providers.gradleProperty('withMyPet').map { it.toBoolean() }.getOrElse(false)
+if (!withMyPet) sourceSets.main.java.exclude('**/compat/mypet/**')
 
 repositories {
     mavenCentral()
-    spigot()
-    dmulloy2()
-    md5()
-    placeholderapi()
-    jitpack()
-
-    // You should configure credentials for this repo
-    def myPetRepo = maven {
-        name = "githubPackages"
-        url = uri("https://maven.pkg.github.com/MyPetORG/MyPet")
+    maven { url = 'https://repo.papermc.io/repository/maven-public/' }
+    maven { url = 'https://repo.dmulloy2.net/repository/public/' }
+    maven { url = 'https://repo.codemc.io/repository/maven-releases/' }
+    maven { url = 'https://repo.extendedclip.com/releases/' }
+    maven { url = 'https://jitpack.io' }
+    // Credentials for the optional legacy MyPet bridge belong in user Gradle properties.
+    if (withMyPet) maven {
+        name = 'githubPackages'
+        url = 'https://maven.pkg.github.com/MyPetORG/MyPet'
         credentials(PasswordCredentials)
+        content { includeGroup('de.keyle') }
     }
+}
 
-    exclusiveContent {
-        forRepositories(myPetRepo)
-        filter { includeGroup("de.keyle") }
-    }
+dependencies {
+    // Use the default modern API; legacy runtime calls are isolated by compatibility bridges and server tests.
+    // -PpaperApiVersion selects 26.2 for the second API compatibility build.
+    compileOnly "io.papermc.paper:paper-api:${providers.gradleProperty('paperApiVersion').get()}"
+    compileOnly('com.github.MilkBowl:VaultAPI:1.7.1') { exclude group: 'org.bukkit' }
+    compileOnly 'net.dmulloy2:ProtocolLib:5.4.0'
+    // Both packet libraries are optional server plugins; neither is shaded into the Java 8 core.
+    compileOnly 'com.github.retrooper:packetevents-spigot:2.13.0'
+    compileOnly 'org.jetbrains:annotations:26.0.2'
+    compileOnly 'me.clip:placeholderapi:2.11.6'
+    if (withMyPet) compileOnly 'de.keyle:mypet:3.12-SNAPSHOT'
+    compileOnly 'ru.endlesscode.mimic:mimic-bukkit-api:0.8.0'
+    implementation 'org.bstats:bstats-bukkit:3.0.2'
+    implementation 'com.zaxxer:HikariCP:4.0.3'
+    implementation 'org.postgresql:postgresql:42.7.7'
+    // Connector/J 8.4 兼容 Java 8；驱动按类名加载，必须保留在整合包的 JDBC 服务描述符中。
+    implementation 'com.mysql:mysql-connector-j:8.4.0'
+    implementation 'org.xerial:sqlite-jdbc:3.50.3.0'
+    // Redis 仅缓存 SQL 已提交的版本快照；驱动必须保留 Java 8 兼容性。
+    implementation 'redis.clients:jedis:6.1.0'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.mockito:mockito-core:5.18.0'
+    // Lifecycle fixtures inspect the plugin's Vault-typed fields even when no economy bridge is enabled.
+    testRuntimeOnly('com.github.MilkBowl:VaultAPI:1.7.1') { exclude group: 'org.bukkit' }
+    testImplementation "io.papermc.paper:paper-api:${providers.gradleProperty('paperApiVersion').get()}"
+    testRuntimeOnly 'org.junit.vintage:junit-vintage-engine:5.13.3'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.13.3'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 8
+}
+
+// Test code can use modern JDK APIs without raising the production plugin bytecode level.
+compileTestJava { options.release = 25 }
+
+processResources {
+    // Other YAML resources contain literal dollar signs and must not undergo template expansion.
+    inputs.property('version', project.version)
+    filesMatching('plugin.yml') { expand(version: project.version) }
 }
 
 shadowJar {
-    dependencies {
-        exclude(dependency("com.google.code.gson:gson:.*"))
-        exclude(dependency("org.jetbrains:annotations:.*"))
-    }
-
-    exclude("DebugProbesKt.bin")
-    exclude("META-INF/proguard/**")
-    exclude("META-INF/native-image/**")
-
-    minimize()
-
-    def shadowPackage = "shade.ru.endlesscode.rpginventory"
-    relocate "com.comphenix.packetwrapper", "${shadowPackage}.packetwrapper"
-
-    // inspector
-    relocate "ru.endlesscode.inspector", "${shadowPackage}.inspector"
-    relocate "kotlinx", "${shadowPackage}.kotlinx"
-    relocate "kotlin", "${shadowPackage}.kotlin"
-
-    // inspector-sentry-reporter
-    relocate "io.sentry", "${shadowPackage}.sentry"
-
-    // bstats
-    relocate "org.bstats", "${shadowPackage}.bstats"
+    archiveClassifier = ''
+    // JDBC drivers are discovered by name; minimization would remove required runtime classes.
+    mergeServiceFiles()
+    // Allow duplicate service descriptors to reach the transformer before archive duplicate filtering.
+    filesMatching('META-INF/services/**') { duplicatesStrategy = DuplicatesStrategy.INCLUDE }
+    def prefix = 'github.saukiya.sxrpginventory.libs'
+    relocate 'com.zaxxer.hikari', "${prefix}.hikari"
+    relocate 'redis.clients.jedis', "${prefix}.jedis"
+    relocate 'org.apache.commons.pool2', "${prefix}.pool2"
+    relocate 'org.bstats', "${prefix}.bstats"
+    exclude 'META-INF/*.SF', 'META-INF/*.RSA', 'META-INF/*.DSA'
 }
 
-def inspectorVersion = "0.12.1"
+// Shadow adds its variant after evaluation; disable that hook so Maven never receives two different JARs at one URL.
+shadow { addShadowVariantIntoJavaComponent = false }
 
-dependencies {
-    compileOnly(spigotApi())
-    compileOnly('com.github.MilkBowl:VaultAPI:1.7.1') {
-        exclude group: 'org.bukkit'
-    }
-    compileOnly('com.comphenix.protocol:ProtocolLib:4.8.0')
-    compileOnly('org.jetbrains:annotations:23.0.0')
-    compileOnly('me.clip:placeholderapi:2.11.1')
-    compileOnly('de.keyle:mypet:3.12-SNAPSHOT')
-    compileOnly('ru.endlesscode.mimic:mimic-bukkit-api:0.8.0')
-    implementation("ru.endlesscode.inspector:inspector-bukkit:$inspectorVersion")
-    implementation("ru.endlesscode.inspector:inspector-sentry-reporter:$inspectorVersion")
-    implementation("ru.endlesscode.inspector:sentry-bukkit:$inspectorVersion")
-    implementation('com.comphenix.packetwrapper:PacketWrapper:1.13-R0.1-SNAPSHOT')
-    implementation('org.bstats:bstats-bukkit:3.0.0')
-    testImplementation('junit:junit:4.13.2')
-    testImplementation('org.mockito:mockito-core:4.4.0')
-}
+jar { archiveClassifier = 'plain' }
+assemble.dependsOn shadowJar
+test { useJUnitPlatform() }
+jacocoTestReport { reports { xml.required = true; html.required = true } }
 
-jacocoTestReport {
-    reports {
-        xml.enabled = true
-        html.enabled = true
+// The companion probe runs against real server implementations and is never bundled into the production plugin.
+sourceSets {
+    probe {
+        compileClasspath += sourceSets.main.output + configurations.compileClasspath
     }
 }
+configurations.named('probeCompileClasspath') {
+    attributes.attribute(org.gradle.api.attributes.java.TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, 25)
+}
+tasks.register('probeJar', Jar) {
+    dependsOn tasks.named('probeClasses')
+    archiveBaseName = 'SX-RPGInventory-Probe'
+    archiveVersion = '1.0.0'
+    from sourceSets.probe.output
+}
 
-// Add custom tasks
-tasks.assemble.dependsOn tasks.shadowJar
-tasks.check.dependsOn tasks.jacocoTestReport
-
-// Add ProGuard minimization task
-// TODO: minimized Jar not works, fix it
-//apply(from: file("proguard.gradle"))
-//apply(from: file("gradle/publish.gradle"))
+// The normal Java component exposes a classifier-free thin artifact, separate from the server's shaded JAR.
+// Its runtime dependencies remain honest; plugin consumers should use compileOnly (optionally transitive=false).
+tasks.register('apiJar', Jar) {
+    dependsOn tasks.named('classes')
+    archiveBaseName = 'SX-RPGInventory-api'
+    from sourceSets.main.output
+}
+assemble.dependsOn tasks.named('apiJar')
+['apiElements', 'runtimeElements'].each { variant ->
+    configurations.named(variant) {
+        outgoing.artifacts.clear()
+        outgoing.artifact(tasks.named('apiJar'))
+    }
+}
+publishing {
+    publications {
+        api(MavenPublication) {
+            artifactId = 'sx-rpginventory'
+            from components.java
+            pom {
+                name = 'SX-RPGInventory API'
+                description = project.description
+                url = 'https://github.com/EndlessCodeGroup/RPGInventory'
+                licenses {
+                    license {
+                        name = 'GNU General Public License, version 3 or later'
+                        url = 'https://www.gnu.org/licenses/gpl-3.0.html'
+                        distribution = 'repo'
+                    }
+                }
+                withXml {
+                    def dependenciesNode = asNode().dependencies ? asNode().dependencies[0] : asNode().appendNode('dependencies')
+                    // Compile-only server APIs are provided, while java-component runtime dependencies stay intact.
+                    configurations.compileOnly.allDependencies.withType(ExternalModuleDependency).each { dependency ->
+                        def node = dependenciesNode.appendNode('dependency')
+                        node.appendNode('groupId', dependency.group)
+                        node.appendNode('artifactId', dependency.name)
+                        node.appendNode('version', dependency.version)
+                        node.appendNode('scope', 'provided')
+                        if (!dependency.excludeRules.empty) {
+                            def exclusions = node.appendNode('exclusions')
+                            dependency.excludeRules.each { rule ->
+                                def exclusion = exclusions.appendNode('exclusion')
+                                exclusion.appendNode('groupId', rule.group ?: '*')
+                                exclusion.appendNode('artifactId', rule.module ?: '*')
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    repositories {
+        // Credentials belong in user Gradle properties or environment variables, never in project source.
+        def target = providers.gradleProperty('mavenRepositoryUrl').orElse(providers.environmentVariable('SX_RPG_MAVEN_URL'))
+        if (target.isPresent()) {
+            maven {
+                name = 'sxRpgRepository'
+                url = uri(target.get())
+                credentials {
+                    username = providers.gradleProperty('mavenRepositoryUsername').orElse(providers.environmentVariable('SX_RPG_MAVEN_USERNAME')).orNull
+                    password = providers.gradleProperty('mavenRepositoryPassword').orElse(providers.environmentVariable('SX_RPG_MAVEN_PASSWORD')).orNull
+                }
+            }
+        }
+    }
+}

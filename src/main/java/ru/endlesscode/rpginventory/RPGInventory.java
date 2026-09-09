@@ -18,7 +18,6 @@
 
 package ru.endlesscode.rpginventory;
 
-import com.comphenix.protocol.ProtocolLibrary;
 import net.milkbowl.vault.economy.Economy;
 import net.milkbowl.vault.permission.Permission;
 import org.bstats.bukkit.Metrics;
@@ -27,21 +26,18 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.HandlerList;
 import org.bukkit.plugin.PluginManager;
 import org.bukkit.plugin.RegisteredServiceProvider;
-import org.bukkit.plugin.ServicePriority;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import ru.endlesscode.inspector.bukkit.command.TrackedCommandExecutor;
-import ru.endlesscode.inspector.bukkit.plugin.PluginLifecycle;
-import ru.endlesscode.inspector.bukkit.scheduler.TrackedBukkitRunnable;
-import ru.endlesscode.mimic.Mimic;
-import ru.endlesscode.mimic.MimicApiLevel;
-import ru.endlesscode.mimic.classes.BukkitClassSystem;
-import ru.endlesscode.mimic.level.BukkitLevelSystem;
+import ru.endlesscode.rpginventory.compat.PluginReporter;
+import org.bukkit.plugin.java.JavaPlugin;
+// Use Bukkit scheduling directly; the old wrapper implements an obsolete Plugin interface.
+import org.bukkit.scheduler.BukkitRunnable;
+import ru.endlesscode.rpginventory.compat.OptionalMimicBridge;
 import ru.endlesscode.rpginventory.compat.VersionHandler;
-import ru.endlesscode.rpginventory.compat.mimic.RPGInventoryItemsRegistry;
-import ru.endlesscode.rpginventory.compat.mimic.RPGInventoryPlayerInventory;
-import ru.endlesscode.rpginventory.compat.mypet.MyPetManager;
+import ru.endlesscode.rpginventory.compat.SXAttributeBridge;
+import ru.endlesscode.rpginventory.compat.ChestSortBridge;
+import ru.endlesscode.rpginventory.compat.OptionalMyPetBridge;
 import ru.endlesscode.rpginventory.event.listener.*;
 import ru.endlesscode.rpginventory.inventory.InventoryLocker;
 import ru.endlesscode.rpginventory.inventory.InventoryManager;
@@ -54,6 +50,7 @@ import ru.endlesscode.rpginventory.misc.Updater;
 import ru.endlesscode.rpginventory.misc.config.Config;
 import ru.endlesscode.rpginventory.misc.config.ConfigUpdater;
 import ru.endlesscode.rpginventory.misc.serialization.Serialization;
+import ru.endlesscode.rpginventory.storage.PersistenceModule;
 import ru.endlesscode.rpginventory.pet.PetManager;
 import ru.endlesscode.rpginventory.resourcepack.ResourcePackModule;
 import ru.endlesscode.rpginventory.utils.Log;
@@ -63,13 +60,17 @@ import ru.endlesscode.rpginventory.utils.Version;
 
 import java.nio.file.Path;
 
-public class RPGInventory extends PluginLifecycle {
+/** Bukkit owns the real plugin lifecycle on every server, avoiding version-specific Plugin proxy methods. */
+public class RPGInventory extends JavaPlugin {
     private static RPGInventory instance;
+
+    private final PluginReporter reporter = new PluginReporter();
+
+    /** Central logger retained for subsystem diagnostics without an external lifecycle wrapper. */
+    public PluginReporter getReporter() { return reporter; }
 
     private Permission perms;
     private Economy economy;
-
-    private Mimic mimic;
 
     private FileLanguage language;
     private boolean placeholderApiHooked = false;
@@ -107,20 +108,12 @@ public class RPGInventory extends PluginLifecycle {
         return instance.myPetHooked;
     }
 
-    public static BukkitLevelSystem getLevelSystem(@NotNull Player player) {
-        return instance.mimic.getLevelSystem(player);
-    }
-
-    public static BukkitClassSystem getClassSystem(@NotNull Player player) {
-        return instance.mimic.getClassSystem(player);
-    }
-
     @Nullable
     public static ResourcePackModule getResourcePackModule() {
         return instance.resourcePackModule;
     }
 
-    @Override
+    /** Initialize shared services only after Bukkit has attached this JavaPlugin instance. */
     public void init() {
         instance = this;
         Log.init(this.getLogger());
@@ -129,22 +122,25 @@ public class RPGInventory extends PluginLifecycle {
 
     @Override
     public void onLoad() {
-        if (checkMimic()) {
-            mimic = Mimic.getInstance();
-            mimic.registerItemsRegistry(new RPGInventoryItemsRegistry(), MimicApiLevel.VERSION_0_7, this, ServicePriority.High);
-            //noinspection UnstableApiUsage
-            mimic.registerPlayerInventoryProvider(RPGInventoryPlayerInventory::new, MimicApiLevel.VERSION_0_8, this, ServicePriority.High);
-        }
+        init();
+        // Keep optional API types out of this class: legacy JVM verification can resolve them before onLoad.
+        OptionalMimicBridge.load(this);
     }
 
     @Override
     public void onEnable() {
-        if (!initMimicSystems()) {
-            return;
-        }
+        OptionalMimicBridge.enable(this);
 
         loadConfigs();
         Serialization.registerTypes();
+        // Select one authoritative backend before any inventory load; never silently fall back on connection failure.
+        try {
+            PersistenceModule.start(this);
+        } catch (RuntimeException failure) {
+            Log.w(failure, "Cannot initialize SX-RPGInventory storage");
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
 
         hookPlaceholderApi();
         if (!loadModules()) {
@@ -156,24 +152,9 @@ public class RPGInventory extends PluginLifecycle {
 
         // Enable commands
         this.getCommand("rpginventory")
-                .setExecutor(new TrackedCommandExecutor(new RPGInventoryCommandExecutor(), getReporter()));
+                .setExecutor(new RPGInventoryCommandExecutor());
 
         this.checkUpdates(null);
-    }
-
-    private boolean initMimicSystems() {
-        boolean isMimicFound = checkMimic();
-        if (isMimicFound) {
-            BukkitLevelSystem.Provider levelSystemProvider = mimic.getLevelSystemProvider();
-            Log.i("Level system ''{0}'' found.", levelSystemProvider.getId());
-            BukkitClassSystem.Provider classSystemProvider = mimic.getClassSystemProvider();
-            Log.i("Class system ''{0}'' found.", classSystemProvider.getId());
-        } else {
-            Log.s("Mimic is required for RPGInventory to use levels and classes from other RPG plugins!");
-            Log.s("Download it from SpigotMC: https://www.spigotmc.org/resources/82515/");
-            getServer().getPluginManager().disablePlugin(this);
-        }
-        return isMimicFound;
     }
 
     private void hookPlaceholderApi() {
@@ -189,6 +170,13 @@ public class RPGInventory extends PluginLifecycle {
     void reload() {
         // Unload
         saveData();
+        // Replacing slot/type definitions could make the only unserialized copy impossible to recover.
+        if (InventoryManager.hasRetainedState()
+                || ru.endlesscode.rpginventory.inventory.backpack.BackpackStorage.hasRetainedState()) {
+            Log.w("Reload aborted: inventory snapshots failed; retained live data must be inspected first.");
+            loadPlayers();
+            return;
+        }
         removeListeners();
 
         // Load
@@ -215,7 +203,7 @@ public class RPGInventory extends PluginLifecycle {
         PluginManager pm = getServer().getPluginManager();
 
         // Hook MyPet
-        if (pm.isPluginEnabled("MyPet") && MyPetManager.init(this)) {
+        if (pm.isPluginEnabled("MyPet") && OptionalMyPetBridge.init(this)) {
             myPetHooked = true;
             Log.i("MyPet used as pet system");
         } else {
@@ -234,6 +222,10 @@ public class RPGInventory extends PluginLifecycle {
         pm.registerEvents(new HandSwapListener(), this);
         pm.registerEvents(new PlayerListener(), this);
         pm.registerEvents(new WorldListener(), this);
+        // Re-register on configuration reload too; removeListeners clears all listeners owned by this plugin.
+        pm.registerEvents(new StorageGuardListener(), this);
+        pm.registerEvents(new SXAttributeBridge(), this);
+        ChestSortBridge.start(this);
 
         if (SlotManager.instance().getElytraSlot() != null) {
             pm.registerEvents(new ElytraListener(), this);
@@ -244,19 +236,10 @@ public class RPGInventory extends PluginLifecycle {
     }
 
     private void removeListeners() {
-        ProtocolLibrary.getProtocolManager().removePacketListeners(this);
+        ChestSortBridge.stop();
+        // The chosen adapter owns packet registration; core must not resolve either optional packet API.
+        CraftManager.stop();
         HandlerList.unregisterAll(this);
-    }
-
-    private boolean checkMimic() {
-        if (getServer().getPluginManager().getPlugin("Mimic") == null) {
-            return false;
-        } else if (MimicApiLevel.checkApiLevel(MimicApiLevel.VERSION_0_8)) {
-            return true;
-        } else {
-            Log.w("At least Mimic 0.8 required for RPGInventory.");
-            return false;
-        }
     }
 
     private boolean checkRequirements() {
@@ -292,17 +275,27 @@ public class RPGInventory extends PluginLifecycle {
 
     @Override
     public void onDisable() {
-        StringUtils.Placeholders.unregisterPlaceholders();
+        ChestSortBridge.stop();
+        CraftManager.stop();
+        // Loading the expansion subclass without PlaceholderAPI also fails during early startup shutdown.
+        if (placeholderApiHooked) {
+            StringUtils.Placeholders.unregisterPlaceholders();
+            placeholderApiHooked = false;
+        }
         saveData();
+        // Final snapshots are enqueued by saveData before the worker/pool are drained.
+        PersistenceModule.stop();
     }
 
     private void saveData() {
+        // Async opens created before reload must not use backpack definitions after they have been replaced.
+        ru.endlesscode.rpginventory.inventory.backpack.BackpackStorage.cancelPendingLoads();
         BackpackManager.saveBackpacks();
         this.savePlayers();
     }
 
     private void startMetrics() {
-        new Metrics(holder, 4210);
+        new Metrics(this, 4210);
     }
 
     private void savePlayers() {
@@ -350,7 +343,7 @@ public class RPGInventory extends PluginLifecycle {
             return;
         }
 
-        new TrackedBukkitRunnable() {
+        new BukkitRunnable() {
             @Override
             public void run() {
                 Updater updater = new Updater(RPGInventory.instance, Updater.UpdateType.NO_DOWNLOAD);

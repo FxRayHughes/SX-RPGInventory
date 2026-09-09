@@ -1,0 +1,73 @@
+name: 验证 SX-RPGInventory
+
+# 双 API 集成验证由维护者手动触发，避免每次文档修改都启动数据库服务。
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        paper: ['26.1.2.build.74-stable', '26.2.build.121-stable']
+    # 临时数据库实际验证所有权与 CAS，不以跳过远端测试代替通过。
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: sxrpg_test
+          POSTGRES_USER: sxrpg_test
+          POSTGRES_PASSWORD: sxrpg_ci_only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U sxrpg_test -d sxrpg_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+      redis:
+        image: redis:8
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: sxrpg_ci_root_only
+          MYSQL_DATABASE: sxrpg_test
+          MYSQL_USER: sxrpg_test
+          MYSQL_PASSWORD: sxrpg_ci_only
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -psxrpg_ci_root_only"
+          --health-interval 5s --health-timeout 5s --health-retries 24
+    env:
+      SX_RPG_TEST_POSTGRES_URL: jdbc:postgresql://localhost:5432/sxrpg_test
+      SX_RPG_TEST_POSTGRES_USER: sxrpg_test
+      SX_RPG_TEST_POSTGRES_PASSWORD: sxrpg_ci_only
+      SX_RPG_TEST_REDIS_URI: redis://localhost:6379/0
+      SX_RPG_TEST_MYSQL_URL: jdbc:mysql://127.0.0.1:3306/sxrpg_test
+      SX_RPG_TEST_MYSQL_USER: sxrpg_test
+      SX_RPG_TEST_MYSQL_PASSWORD: sxrpg_ci_only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: 授予临时测试账号只读锁等待诊断权限
+        # 锁测试必须先观察到真实 InnoDB 等待；凭据仅用于本次可丢弃的 CI 容器。
+        run: docker exec -e MYSQL_PWD=sxrpg_ci_root_only ${{ job.services.mysql.id }} mysql -uroot -e "GRANT SELECT ON performance_schema.* TO 'sxrpg_test'@'%';"
+      - name: 使用所选 Paper API 测试并打包
+        run: bash ./gradlew clean build --no-daemon --console=plain -PpaperApiVersion=${{ matrix.paper }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verification-${{ matrix.paper }}
+          path: |
+            build/libs/
+            build/reports/tests/
+          if-no-files-found: ignore

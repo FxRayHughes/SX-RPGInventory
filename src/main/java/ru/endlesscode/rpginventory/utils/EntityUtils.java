@@ -18,12 +18,11 @@
 
 package ru.endlesscode.rpginventory.utils;
 
-import com.comphenix.protocol.utility.MinecraftReflection;
 import org.bukkit.Location;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
-import ru.endlesscode.inspector.report.Reporter;
+import ru.endlesscode.rpginventory.compat.PluginReporter;
 import ru.endlesscode.rpginventory.RPGInventory;
 import ru.endlesscode.rpginventory.inventory.InventoryManager;
 import ru.endlesscode.rpginventory.pet.PetManager;
@@ -39,24 +38,7 @@ import java.lang.reflect.Method;
  */
 public class EntityUtils {
 
-    private static Method craftEntity_getHandle;
-    private static Method navigationAbstract_a;
-    private static Method entityInsentient_getNavigation;
-    private static final Class<?> entityInsentientClass = MinecraftReflection.getMinecraftClass("EntityInsentient");
-
-    private static final Reporter reporter = RPGInventory.getInstance().getReporter();
-
-    static {
-        try {
-            craftEntity_getHandle = MinecraftReflection.getCraftEntityClass().getDeclaredMethod("getHandle");
-            entityInsentient_getNavigation = entityInsentientClass.getDeclaredMethod("getNavigation");
-            navigationAbstract_a = MinecraftReflection.getMinecraftClass("NavigationAbstract")
-                    .getDeclaredMethod("a", double.class, double.class, double.class, double.class);
-        } catch (NoSuchMethodException e) {
-            reporter.report("Error on EntityUtils initialization", e);
-        }
-    }
-
+    /** Keep pet movement available on Paper and Spigot through the capability-selected navigation adapter. */
     public static void goPetToPlayer(@NotNull final Player player, @NotNull final LivingEntity entity) {
         if (!InventoryManager.playerIsLoaded(player) || !player.isOnline() || entity.isDead()) {
             return;
@@ -72,6 +54,7 @@ public class EntityUtils {
         final double distance = target.distance(entity.getLocation());
         if (distance > 20D && LocationUtils.isSafeLocation(target)) {
             PetManager.teleportPet(player, null);
+            return;
         } else if (distance < 4D) {
             return;
         }
@@ -79,12 +62,6 @@ public class EntityUtils {
         PetType petType = PetManager.getPetFromEntity(entity, player);
         double speedModifier = petType == null ? 1.0 : 0.4 / petType.getSpeed();
 
-        try {
-            Object insentient = entityInsentientClass.cast(craftEntity_getHandle.invoke(entity));
-            Object navigation = entityInsentient_getNavigation.invoke(insentient);
-            navigationAbstract_a.invoke(navigation, target.getX(), target.getY(), target.getZ(), speedModifier);
-        } catch (IllegalAccessException | InvocationTargetException e) {
-            reporter.report("Error on going pet to player", e);
-        }
+        ru.endlesscode.rpginventory.compat.ServerCompatibility.navigate(entity, target, speedModifier);
     }
 }

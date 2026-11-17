@@ -9,6 +9,7 @@ public class ModernVersionTest {
         assertEquals(260100, VersionHandler.parseVersionCode("26.1"));
         assertEquals(260102, VersionHandler.parseVersionCode("26.1.2.build.74-stable"));
         assertEquals(260200, VersionHandler.parseVersionCode("26.2-R0.1-SNAPSHOT"));
+        assertEquals(260300, VersionHandler.parseVersionCode("26.3.build.253-stable"));
         assertEquals(12111, VersionHandler.parseVersionCode("1.21.11-R0.1-SNAPSHOT"));
         assertEquals(0, VersionHandler.parseVersionCode("unknown"));
     }
